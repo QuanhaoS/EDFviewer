@@ -84,7 +84,11 @@ def band_power(psd, freqs, low, high):
     np.ndarray : shape (n_channels,) - power in band
     """
     mask = (freqs >= low) & (freqs <= high)
-    return np.trapz(psd[:, mask], freqs[mask], axis=-1)
+    if hasattr(np, "trapezoid"):
+        integrate = np.trapezoid
+    else:
+        integrate = np.trapz
+    return integrate(psd[:, mask], freqs[mask], axis=-1)
 
 
 def band_powers(data, sfreq, bands=None, nperseg=None, axis=-1):
@@ -236,6 +240,37 @@ def spectrogram(data, sfreq, nperseg=256, noverlap=None, axis=-1):
     return freqs, times, Sxx
 
 
+def _haar_scales_from_freqs(freqs_hz: np.ndarray, sfreq: float) -> np.ndarray:
+    """Map Hz to Haar CWT scales (width in samples): f ≈ sfreq / (2 * scale)."""
+    freqs_hz = np.asarray(freqs_hz, dtype=float)
+    freqs_hz = np.maximum(freqs_hz, 1e-6)
+    scales = sfreq / (2.0 * freqs_hz)
+    return np.sort(scales)[::-1]
+
+
+def _cwt_haar_1d(signal: np.ndarray, scales: np.ndarray) -> np.ndarray:
+    """
+    Haar CWT via convolution (PyWavelets has no continuous Haar).
+
+    Returns |CWT| with shape (n_scales, n_samples).
+    """
+    from scipy.signal import convolve
+
+    sig = np.asarray(signal, dtype=float).ravel()
+    n = sig.shape[0]
+    scales = np.asarray(scales, dtype=float)
+    coefs = np.empty((scales.shape[0], n), dtype=float)
+    for i, scale in enumerate(scales):
+        width = max(2, int(np.ceil(float(scale))))
+        if width % 2:
+            width += 1
+        half = width // 2
+        psi = np.concatenate([np.ones(half, dtype=float), -np.ones(half, dtype=float)])
+        psi /= np.linalg.norm(psi) + 1e-12
+        coefs[i] = np.abs(convolve(sig, psi[::-1], mode="same"))
+    return coefs
+
+
 def cwt_scalogram(
     data,
     sfreq,
@@ -259,7 +294,8 @@ def cwt_scalogram(
         Sampling frequency (Hz)
     wavelet : str
         Wavelet name for pywt.cwt (default: 'cmor1.5-1.0' complex Morlet).
-        Examples: 'morl', 'mexh', 'cmor1.5-1.0'
+        Use 'haar' for a custom Haar CWT (not provided by PyWavelets).
+        Examples: 'morl', 'mexh', 'cmor1.5-1.0', 'haar'
     fmin : float
         Minimum frequency (Hz)
     fmax : float, optional
@@ -285,11 +321,20 @@ def cwt_scalogram(
         raise ImportError("CWT scalogram requires PyWavelets: pip install PyWavelets")
 
     data = np.asarray(data)
-    if data.ndim == 1:
-        data = data[np.newaxis, :]
-        squeeze_out = True
-    else:
-        squeeze_out = False
+    if data.ndim == 0:
+        raise ValueError("data must have at least 1 dimension")
+
+    axis = int(axis)
+    if axis < 0:
+        axis += data.ndim
+    if axis < 0 or axis >= data.ndim:
+        raise ValueError(f"axis out of range: {axis} for data.ndim={data.ndim}")
+
+    # Move the requested time axis to the end so the CWT loop can be axis-agnostic.
+    data_t_last = np.moveaxis(data, axis, -1)
+    input_was_1d = data_t_last.ndim == 1
+    if input_was_1d:
+        data_t_last = data_t_last[np.newaxis, :]
 
     if fmax is None:
         fmax = sfreq / 4.0
@@ -300,31 +345,46 @@ def cwt_scalogram(
     freqs_desired = np.logspace(
         np.log10(max(fmin, 0.1)), np.log10(min(fmax, sfreq / 2 - 0.1)), n_scales
     )
-    # frequency2scale expects normalized frequency (f / fs)
-    freqs_norm = freqs_desired * sampling_period
-    scales = pywt.frequency2scale(wavelet, freqs_norm)
-    scales = np.sort(scales)[::-1]
+    use_haar = str(wavelet).lower() == "haar"
+    if use_haar:
+        scales = _haar_scales_from_freqs(freqs_desired, sfreq)
+        freqs = freqs_desired
+    else:
+        # frequency2scale expects normalized frequency (f / fs)
+        freqs_norm = freqs_desired * sampling_period
+        scales = pywt.frequency2scale(wavelet, freqs_norm)
+        scales = np.sort(scales)[::-1]
 
-    # data shape: (n_channels, n_samples), time axis = -1
-    n_samples = data.shape[axis]
-    n_channels = data.shape[0]
+    # Reshape to (n_channels, n_samples), where channel can represent any
+    # combination of non-time axes.
+    n_samples = data_t_last.shape[-1]
+    non_time_shape = data_t_last.shape[:-1]
+    data_2d = data_t_last.reshape(-1, n_samples)
+    n_channels = data_2d.shape[0]
 
     coefs_list = []
     for ch in range(n_channels):
-        sig = data[ch, :]
-        coefs, freqs = pywt.cwt(
-            sig, scales, wavelet, sampling_period=sampling_period
-        )
-        coefs_list.append(np.abs(coefs))
-    coefs_mag = np.stack(coefs_list, axis=0)
+        sig = data_2d[ch, :]
+        if use_haar:
+            coefs = _cwt_haar_1d(sig, scales)
+        else:
+            coefs, freqs = pywt.cwt(
+                sig, scales, wavelet, sampling_period=sampling_period
+            )
+            coefs = np.abs(coefs)
+        coefs_list.append(coefs)
+    coefs_mag = np.stack(coefs_list, axis=0)  # (n_channels, n_scales, n_samples)
 
-    # Low frequency at first index (for plotting: low at bottom)
-    freqs = freqs[::-1]
-    coefs_mag = coefs_mag[..., ::-1, :] if coefs_mag.ndim == 3 else coefs_mag[::-1, :]
+    # Restore non-time dimensions: (...non_time, n_scales, n_samples)
+    coefs_mag = coefs_mag.reshape(*non_time_shape, coefs_mag.shape[-2], coefs_mag.shape[-1])
+
+    # pywt.cwt already returns frequencies aligned to the supplied scales.
+    # With the current scale construction this is low->high, which is what we
+    # want for plotting (low frequency at the bottom, high at the top).
 
     times = np.arange(n_samples) * sampling_period
 
-    if squeeze_out:
+    if input_was_1d:
         coefs_mag = coefs_mag.squeeze(axis=0)
 
     return times, freqs, coefs_mag

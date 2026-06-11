@@ -13,5 +13,13 @@ Functions:
 
 from .signal_dataset import SignalDataset
 from .edf_viewer import load_edf, plot_channels
+from .edf_reader import get_valid_time_range, load_channel_window, load_edf_metadata
 
-__all__ = ["SignalDataset", "load_edf", "plot_channels"]
+__all__ = [
+    "SignalDataset",
+    "get_valid_time_range",
+    "load_channel_window",
+    "load_edf",
+    "load_edf_metadata",
+    "plot_channels",
+]
