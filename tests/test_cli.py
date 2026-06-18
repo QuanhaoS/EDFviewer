@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,6 +87,100 @@ class CLITests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(stdout, "")
         self.assertIn("exceeds recording duration", stderr)
+
+    def test_cli_legacy_color_range_applies_to_parameters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code, stdout, stderr = self._run_cli(
+                [
+                    str(PHANTOM),
+                    "--channel",
+                    "sine",
+                    "--start",
+                    "0",
+                    "--length",
+                    "5",
+                    "--cwt-scales",
+                    "8",
+                    "--color-min",
+                    "-2",
+                    "--color-max",
+                    "3",
+                    "--export",
+                    "parameters",
+                    "-o",
+                    tmpdir,
+                ]
+            )
+
+            self.assertEqual(code, 0, stderr)
+            record_path = next(Path(tmpdir).glob("*_parameters.json"))
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["display"]["color_range_mode"], "manual")
+            self.assertEqual(record["display"]["color_min"], -2.0)
+            self.assertEqual(record["display"]["color_max"], 3.0)
+
+    def test_cli_plot_specific_color_range_overrides_legacy_in_parameters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code, stdout, stderr = self._run_cli(
+                [
+                    str(PHANTOM),
+                    "--channel",
+                    "sine",
+                    "--start",
+                    "0",
+                    "--length",
+                    "5",
+                    "--cwt-scales",
+                    "8",
+                    "--color-min",
+                    "-2",
+                    "--color-max",
+                    "3",
+                    "--scalogram-color-min",
+                    "0.25",
+                    "--scalogram-color-max",
+                    "1.5",
+                    "--spectrogram-color-min",
+                    "-70",
+                    "--spectrogram-color-max",
+                    "-5",
+                    "--export",
+                    "parameters",
+                    "-o",
+                    tmpdir,
+                ]
+            )
+
+            self.assertEqual(code, 0, stderr)
+            record_path = next(Path(tmpdir).glob("*_parameters.json"))
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["display"]["scalogram_color_range_mode"], "manual")
+            self.assertEqual(record["display"]["scalogram_color_min"], 0.25)
+            self.assertEqual(record["display"]["spectrogram_color_range_mode"], "manual")
+            self.assertEqual(record["display"]["spectrogram_color_max"], -5.0)
+
+    def test_cli_partial_plot_specific_color_range_returns_nonzero(self):
+        code, stdout, stderr = self._run_cli(
+            [
+                str(PHANTOM),
+                "--channel",
+                "sine",
+                "--start",
+                "0",
+                "--length",
+                "5",
+                "--cwt-scales",
+                "8",
+                "--scalogram-color-min",
+                "0.25",
+                "--export",
+                "parameters",
+            ]
+        )
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(stdout, "")
+        self.assertIn("Manual scalogram_color range requires min and max", stderr)
 
     def _run_cli(self, argv):
         stdout = io.StringIO()

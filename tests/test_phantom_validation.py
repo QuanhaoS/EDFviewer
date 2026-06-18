@@ -34,7 +34,8 @@ def test_phantom_sine_matches_theoretical_frequency_and_amplitude():
         )
         result = workflow.compute_window("sine", params)
         dominant = result.features["freq_dominant_hz"]
-        signal = result.processed_signal
+        visible = (result.times_s >= -1e-9) & (result.times_s <= result.source.window_length_s + 1e-9)
+        signal = result.processed_signal[visible]
         peak = float(np.max(np.abs(signal - np.mean(signal))))
         peak_mv = peak * 1000.0 if peak < 10.0 else peak
         measured.append((dominant, peak_mv))

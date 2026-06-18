@@ -32,7 +32,8 @@ def analyze_window(
     if getattr(window, "times_s", None) is not None and len(window.times_s) == signal.shape[0]:
         times = _relative_times_for_window(window)
     else:
-        times = np.arange(signal.shape[0], dtype=float) / sfreq
+        offset = _relative_time_offset(window)
+        times = offset + np.arange(signal.shape[0], dtype=float) / sfreq
 
     signal_views = compute_signal_views(signal, times, sfreq)
     maps = compute_time_frequency_maps(signal_views, sfreq, parameters)
@@ -104,20 +105,29 @@ def compute_time_frequency_maps(
     """Compute CWT maps for raw/BBI/amplitude and an STFT spectrogram."""
 
     maps: dict[str, TimeFrequencyMap] = {}
+    times = np.asarray(signal_views["times_s"], dtype=float)
+    time_offset = float(times[0]) if times.size else 0.0
     for key, series in (
         ("raw_scalogram", signal_views["raw_values"]),
         ("bbi_scalogram", signal_views["bbi_series"]),
         ("amplitude_scalogram", signal_views["amplitude_series"]),
     ):
-        maps[key] = _compute_cwt_map(series, sfreq, parameters)
-    maps["spectrogram"] = _compute_stft_map(signal_views["raw_values"], sfreq, parameters)
+        maps[key] = _shift_time_frequency_map(
+            _compute_cwt_map(series, sfreq, parameters),
+            time_offset,
+        )
+    maps["spectrogram"] = _shift_time_frequency_map(
+        _compute_stft_map(signal_views["raw_values"], sfreq, parameters),
+        time_offset,
+    )
     return maps
 
 
 def compute_feature_table(result: AnalysisResult) -> dict[str, Any]:
     """Build a CSV-compatible one-row feature table."""
 
-    signal_2d = result.processed_signal[np.newaxis, :]
+    visible_signal = _window_values(result.times_s, result.processed_signal, result.source.window_length_s)
+    signal_2d = visible_signal[np.newaxis, :]
     try:
         time_features = compute_time_features(signal_2d, axis=1)
         nperseg = min(1024, max(32, signal_2d.shape[1] // 4))
@@ -139,7 +149,7 @@ def compute_feature_table(result: AnalysisResult) -> dict[str, Any]:
         "window_length_s": length,
         "window_end_s": start + length,
         "processed_sfreq_hz": float(result.processed_sfreq),
-        "n_samples": int(result.processed_signal.shape[0]),
+        "n_samples": int(visible_signal.shape[0]),
     }
     for name, value in time_features.items():
         features[f"time_{name}"] = _scalar(value)
@@ -148,8 +158,10 @@ def compute_feature_table(result: AnalysisResult) -> dict[str, Any]:
     for band, value in freq_features["band_powers"].items():
         features[f"freq_band_power_{band}"] = _scalar(value)
 
-    _add_summary(features, "bbi", result.bbi_values_s)
-    _add_summary(features, "amplitude", result.amplitude_values)
+    _, bbi_values = _window_pairs(result.bbi_times_s, result.bbi_values_s, length)
+    _, amplitude_values = _window_pairs(result.amplitude_times_s, result.amplitude_values, length)
+    _add_summary(features, "bbi", bbi_values)
+    _add_summary(features, "amplitude", amplitude_values)
     return features
 
 
@@ -192,6 +204,51 @@ def _relative_times_for_window(window: ChannelWindow) -> np.ndarray:
     if times.size > 0 and start_s > 0 and abs(float(times[0]) - start_s) < 1e-6:
         times = times - start_s
     return times
+
+
+def _relative_time_offset(window: ChannelWindow) -> float:
+    times = np.asarray(getattr(window, "times_s", []), dtype=float)
+    if times.size == 0:
+        return 0.0
+    return float(_relative_times_for_window(window)[0])
+
+
+def _window_mask(times_s: np.ndarray, window_length_s: float, sfreq: float | None = None) -> np.ndarray:
+    times = np.asarray(times_s, dtype=float)
+    tolerance = 1e-9
+    if sfreq is not None and sfreq > 0:
+        tolerance = max(tolerance, 0.5 / float(sfreq))
+    return (times >= -tolerance) & (times <= float(window_length_s) + tolerance)
+
+
+def _window_values(times_s: np.ndarray, values: np.ndarray, window_length_s: float) -> np.ndarray:
+    times = np.asarray(times_s, dtype=float)
+    values = np.asarray(values, dtype=float)
+    if times.shape[0] != values.shape[0]:
+        raise AnalysisError("times and values must have the same length")
+    if times.size == 0:
+        raise AnalysisError("visible signal must not be empty")
+    median_dt = np.median(np.diff(times)) if times.size > 1 else 0.0
+    sfreq = 1.0 / median_dt if median_dt > 0 else None
+    mask = _window_mask(times, window_length_s, sfreq=sfreq)
+    cropped = values[mask]
+    if cropped.size == 0:
+        raise AnalysisError("visible signal must not be empty")
+    return cropped
+
+
+def _window_pairs(
+    times_s: np.ndarray,
+    values: np.ndarray,
+    window_length_s: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    times = np.asarray(times_s, dtype=float)
+    values = np.asarray(values, dtype=float)
+    n = min(times.shape[0], values.shape[0])
+    times = times[:n]
+    values = values[:n]
+    mask = _window_mask(times, window_length_s)
+    return times[mask], values[mask]
 
 
 def _align_sparse_series(
@@ -276,6 +333,18 @@ def _compute_stft_map(
         values=values,
         value_label="Power (dB)",
         method="stft",
+    )
+
+
+def _shift_time_frequency_map(tf_map: TimeFrequencyMap, offset_s: float) -> TimeFrequencyMap:
+    if abs(float(offset_s)) < 1e-12:
+        return tf_map
+    return TimeFrequencyMap(
+        times_s=np.asarray(tf_map.times_s, dtype=float) + float(offset_s),
+        freqs_hz=tf_map.freqs_hz,
+        values=tf_map.values,
+        value_label=tf_map.value_label,
+        method=tf_map.method,
     )
 
 

@@ -45,6 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--freq-axis", choices=["linear", "log"], default="linear")
     parser.add_argument("--color-min", type=float, default=None)
     parser.add_argument("--color-max", type=float, default=None)
+    parser.add_argument("--scalogram-color-min", type=float, default=None)
+    parser.add_argument("--scalogram-color-max", type=float, default=None)
+    parser.add_argument("--spectrogram-color-min", type=float, default=None)
+    parser.add_argument("--spectrogram-color-max", type=float, default=None)
     parser.add_argument("--filter", choices=["none", "low_pass", "high_pass", "band_pass"], default="none")
     parser.add_argument("--filter-low", type=float, default=None)
     parser.add_argument("--filter-high", type=float, default=None)
@@ -68,6 +72,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         channel_name = _resolve_channel(args, metadata.channel_names)
         default_fmax = _default_fmax(metadata, channel_name, args.target_sfreq)
         color_range_mode = "manual" if args.color_min is not None or args.color_max is not None else "auto"
+        scalogram_color_range_mode = (
+            "manual"
+            if args.scalogram_color_min is not None or args.scalogram_color_max is not None
+            else None
+        )
+        spectrogram_color_range_mode = (
+            "manual"
+            if args.spectrogram_color_min is not None or args.spectrogram_color_max is not None
+            else None
+        )
         params = AnalysisParameters(
             target_sfreq=args.target_sfreq,
             window_start_s=args.start,
@@ -85,6 +99,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             color_range_mode=color_range_mode,
             color_min=args.color_min,
             color_max=args.color_max,
+            scalogram_color_range_mode=scalogram_color_range_mode,
+            scalogram_color_min=args.scalogram_color_min,
+            scalogram_color_max=args.scalogram_color_max,
+            spectrogram_color_range_mode=spectrogram_color_range_mode,
+            spectrogram_color_min=args.spectrogram_color_min,
+            spectrogram_color_max=args.spectrogram_color_max,
             filter_enabled=args.filter != "none",
             filter_type=None if args.filter == "none" else args.filter,
             low_cut_hz=args.filter_low,

@@ -69,6 +69,12 @@ def export_window_pngs(
             color_range_mode=display.color_range_mode,
             color_min=display.color_min,
             color_max=display.color_max,
+            scalogram_color_range_mode=display.scalogram_color_range_mode,
+            scalogram_color_min=display.scalogram_color_min,
+            scalogram_color_max=display.scalogram_color_max,
+            spectrogram_color_range_mode=display.spectrogram_color_range_mode,
+            spectrogram_color_min=display.spectrogram_color_min,
+            spectrogram_color_max=display.spectrogram_color_max,
             fit_signal_y=display.fit_signal_y,
         )
         path = outdir / build_output_filename(result, f"{view}_scalogram", "png")
@@ -134,6 +140,12 @@ def export_parameter_record(result: AnalysisResult, output_path: str | Path) -> 
             "color_range_mode": getattr(result.parameters, "color_range_mode", None),
             "color_min": getattr(result.parameters, "color_min", None),
             "color_max": getattr(result.parameters, "color_max", None),
+            "scalogram_color_range_mode": getattr(result.parameters, "scalogram_color_range_mode", None),
+            "scalogram_color_min": getattr(result.parameters, "scalogram_color_min", None),
+            "scalogram_color_max": getattr(result.parameters, "scalogram_color_max", None),
+            "spectrogram_color_range_mode": getattr(result.parameters, "spectrogram_color_range_mode", None),
+            "spectrogram_color_min": getattr(result.parameters, "spectrogram_color_min", None),
+            "spectrogram_color_max": getattr(result.parameters, "spectrogram_color_max", None),
         },
         "parameters": parameter_to_dict(result.parameters),
     }
@@ -264,6 +276,12 @@ def _display(display: DisplayParameters | Any) -> DisplayParameters:
         color_range_mode=str(getattr(display, "color_range_mode", "auto")),
         color_min=getattr(display, "color_min", None),
         color_max=getattr(display, "color_max", None),
+        scalogram_color_range_mode=getattr(display, "scalogram_color_range_mode", None),
+        scalogram_color_min=getattr(display, "scalogram_color_min", None),
+        scalogram_color_max=getattr(display, "scalogram_color_max", None),
+        spectrogram_color_range_mode=getattr(display, "spectrogram_color_range_mode", None),
+        spectrogram_color_min=getattr(display, "spectrogram_color_min", None),
+        spectrogram_color_max=getattr(display, "spectrogram_color_max", None),
         fit_signal_y=bool(getattr(display, "fit_signal_y", True)),
     )
 

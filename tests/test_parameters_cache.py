@@ -45,6 +45,39 @@ def test_display_manual_color_range_fails():
         )
 
 
+def test_display_plot_specific_manual_color_ranges_validate():
+    validate_display_parameters(
+        DisplayParameters(
+            scalogram_color_range_mode="manual",
+            scalogram_color_min=0.1,
+            scalogram_color_max=2.0,
+            spectrogram_color_range_mode="manual",
+            spectrogram_color_min=-80.0,
+            spectrogram_color_max=-10.0,
+        )
+    )
+
+
+def test_display_plot_specific_manual_color_range_fails_when_partial():
+    with pytest.raises(ParameterValidationError):
+        validate_display_parameters(
+            DisplayParameters(
+                scalogram_color_range_mode="manual",
+                scalogram_color_min=0.1,
+            )
+        )
+
+
+def test_analysis_plot_specific_manual_color_range_fails_when_inverted():
+    params = AnalysisParameters(
+        spectrogram_color_range_mode="manual",
+        spectrogram_color_min=1.0,
+        spectrogram_color_max=1.0,
+    )
+    with pytest.raises(ParameterValidationError):
+        validate_analysis_parameters(params, _metadata(), channel_name="sine")
+
+
 def test_analysis_cache_lru_and_parameter_key():
     cache = AnalysisCache(max_size=1)
     p1 = AnalysisParameters(window_start_s=0.0)

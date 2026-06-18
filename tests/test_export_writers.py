@@ -63,6 +63,12 @@ def test_export_feature_csv_writes_header_and_context(tmp_path):
 
 def test_export_parameter_record_writes_required_sections(tmp_path):
     result = _result()
+    object.__setattr__(result.parameters, "scalogram_color_range_mode", "manual")
+    object.__setattr__(result.parameters, "scalogram_color_min", 0.25)
+    object.__setattr__(result.parameters, "scalogram_color_max", 1.5)
+    object.__setattr__(result.parameters, "spectrogram_color_range_mode", "manual")
+    object.__setattr__(result.parameters, "spectrogram_color_min", -70.0)
+    object.__setattr__(result.parameters, "spectrogram_color_max", -5.0)
     path = tmp_path / "parameters.json"
 
     exported = export_parameter_record(result, path)
@@ -74,6 +80,8 @@ def test_export_parameter_record_writes_required_sections(tmp_path):
     assert record["cwt"]["wavelet"] == "cmor1.5-1.0"
     assert record["stft"]["stft_window_s"] == 1.0
     assert record["display"]["freq_axis_mode"] == "linear"
+    assert record["display"]["scalogram_color_min"] == 0.25
+    assert record["display"]["spectrogram_color_max"] == -5.0
 
 
 def test_export_window_pngs_to_temporary_directory(tmp_path):

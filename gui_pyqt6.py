@@ -139,50 +139,120 @@ def _spectrogram_display_levels(
     return (lo, hi)
 
 
+def _result_window_mask(times_s: np.ndarray, result: AnalysisResult) -> np.ndarray:
+    times = np.asarray(times_s, dtype=float)
+    window_len = float(result.source.window_length_s)
+    return (times >= -1e-9) & (times <= window_len + 1e-9)
+
+
+def _crop_result_series(
+    result: AnalysisResult,
+    times_s: np.ndarray,
+    values: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    times = np.asarray(times_s, dtype=float)
+    values = np.asarray(values, dtype=float)
+    n = min(times.shape[0], values.shape[0])
+    times = times[:n]
+    values = values[:n]
+    mask = _result_window_mask(times, result)
+    return _clip_result_window_times(times[mask], result), values[mask]
+
+
+def _crop_result_map(
+    result: AnalysisResult,
+    times_s: np.ndarray,
+    values: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    times = np.asarray(times_s, dtype=float)
+    values = np.asarray(values, dtype=float)
+    mask = _result_window_mask(times, result)
+    return _clip_result_window_times(times[mask], result), values[:, mask]
+
+
+def _clip_result_window_times(times_s: np.ndarray, result: AnalysisResult) -> np.ndarray:
+    return np.clip(
+        np.asarray(times_s, dtype=float),
+        0.0,
+        float(result.source.window_length_s),
+    )
+
+
 def _gui_results_from_analysis(result: AnalysisResult) -> Dict[str, Any]:
     t_start = float(result.source.window_start_s)
+    times_s, raw_signal = _crop_result_series(result, result.times_s, result.raw_signal)
+    amplitude_times_s, amplitude_values = _crop_result_series(
+        result,
+        result.amplitude_times_s,
+        result.amplitude_values,
+    )
+    bbi_times_s, bbi_values = _crop_result_series(
+        result,
+        result.bbi_times_s,
+        result.bbi_values_s,
+    )
+    raw_scalogram_times_s, raw_scalogram_values = _crop_result_map(
+        result,
+        result.raw_scalogram.times_s,
+        result.raw_scalogram.values,
+    )
+    amp_scalogram_times_s, amp_scalogram_values = _crop_result_map(
+        result,
+        result.amplitude_scalogram.times_s,
+        result.amplitude_scalogram.values,
+    )
+    bbi_scalogram_times_s, bbi_scalogram_values = _crop_result_map(
+        result,
+        result.bbi_scalogram.times_s,
+        result.bbi_scalogram.values,
+    )
+    spectrogram_times_s, spectrogram_values = _crop_result_map(
+        result,
+        result.spectrogram.times_s,
+        result.spectrogram.values,
+    )
     step_x_amp, step_y_amp = _step_from_samples(
         t_start,
-        t_start + result.amplitude_times_s,
-        result.amplitude_values,
+        t_start + amplitude_times_s,
+        amplitude_values,
     )
     step_x_bbi, step_y_bbi = _step_from_samples(
         t_start,
-        t_start + result.bbi_times_s,
-        result.bbi_values_s,
+        t_start + bbi_times_s,
+        bbi_values,
     )
     return {
         "t_start": t_start,
         "window_len_s": result.source.window_length_s,
-        "times": t_start + result.times_s,
-        "sig": result.raw_signal,
-        "amp_t": t_start + result.amplitude_times_s,
-        "amp_y": result.amplitude_values,
+        "times": t_start + times_s,
+        "sig": raw_signal,
+        "amp_t": t_start + amplitude_times_s,
+        "amp_y": amplitude_values,
         "step_x_amp": step_x_amp,
         "step_y_amp": step_y_amp,
-        "bbi": result.bbi_values_s,
-        "bbi_t": t_start + result.bbi_times_s,
+        "bbi": bbi_values,
+        "bbi_t": t_start + bbi_times_s,
         "step_x_bbi": step_x_bbi,
         "step_y_bbi": step_y_bbi,
         "raw": (
-            t_start + result.raw_scalogram.times_s,
+            t_start + raw_scalogram_times_s,
             result.raw_scalogram.freqs_hz,
-            result.raw_scalogram.values,
+            raw_scalogram_values,
         ),
         "amp_scalogram": (
-            t_start + result.amplitude_scalogram.times_s,
+            t_start + amp_scalogram_times_s,
             result.amplitude_scalogram.freqs_hz,
-            result.amplitude_scalogram.values,
+            amp_scalogram_values,
         ),
         "bbi_scalogram": (
-            t_start + result.bbi_scalogram.times_s,
+            t_start + bbi_scalogram_times_s,
             result.bbi_scalogram.freqs_hz,
-            result.bbi_scalogram.values,
+            bbi_scalogram_values,
         ),
         "spectrogram": (
             result.spectrogram.freqs_hz,
-            t_start + result.spectrogram.times_s,
-            result.spectrogram.values,
+            t_start + spectrogram_times_s,
+            spectrogram_values,
         ),
         "analysis_result": result,
     }
@@ -232,6 +302,11 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self._pending_cache_key: Optional[tuple] = None
         self._cache_limit = 2
         self._freq_axis_log = False
+        self._last_scalogram_levels: Tuple[float, float] | None = None
+        self._last_spectrogram_levels: Tuple[float, float] | None = None
+        self._syncing_color_controls = False
+        self._setting_scalogram_lut_levels = False
+        self._syncing_axis_controls = False
 
         # --- UI: controls row ---
         central = QtWidgets.QWidget(self)
@@ -342,6 +417,19 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         )
         self.fit_xy_btn.clicked.connect(self._fit_xy)
         selector_layout.addWidget(self.fit_xy_btn, stretch=0)
+        selector_layout.addWidget(QtWidgets.QLabel("Color:"), stretch=0)
+        self.scalogram_manual_color_check = QtWidgets.QCheckBox("Manual")
+        self.scalogram_manual_color_check.setToolTip("Set scalogram color bar limits manually.")
+        selector_layout.addWidget(self.scalogram_manual_color_check, stretch=0)
+        selector_layout.addWidget(QtWidgets.QLabel("Min:"), stretch=0)
+        self.scalogram_color_min_spin = self._make_color_limit_spin(0.0)
+        selector_layout.addWidget(self.scalogram_color_min_spin, stretch=0)
+        selector_layout.addWidget(QtWidgets.QLabel("Max:"), stretch=0)
+        self.scalogram_color_max_spin = self._make_color_limit_spin(1.0)
+        selector_layout.addWidget(self.scalogram_color_max_spin, stretch=0)
+        self.scalogram_manual_color_check.toggled.connect(self._on_color_controls_changed)
+        self.scalogram_color_min_spin.valueChanged.connect(self._on_color_controls_changed)
+        self.scalogram_color_max_spin.valueChanged.connect(self._on_color_controls_changed)
         v1.addLayout(selector_layout)
 
         self.plot_signal_step = pg.PlotWidget()
@@ -349,6 +437,33 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self.plot_signal_step.setLabel("bottom", "Time", "s")
         self.plot_signal_step.setLabel("left", "Signal", "")
         v1.addWidget(self.plot_signal_step, stretch=1)
+
+        scal_axis_layout = QtWidgets.QHBoxLayout()
+        scal_axis_layout.addWidget(QtWidgets.QLabel("Scalogram axes:"), stretch=0)
+        self.scalogram_manual_axes_check = QtWidgets.QCheckBox("Manual")
+        self.scalogram_manual_axes_check.setToolTip("Set scalogram X/Y coordinate limits manually.")
+        scal_axis_layout.addWidget(self.scalogram_manual_axes_check, stretch=0)
+        for label, attr in (
+            ("X min:", "scalogram_x_min_spin"),
+            ("X max:", "scalogram_x_max_spin"),
+            ("Y min:", "scalogram_y_min_spin"),
+            ("Y max:", "scalogram_y_max_spin"),
+        ):
+            scal_axis_layout.addWidget(QtWidgets.QLabel(label), stretch=0)
+            spin = self._make_axis_limit_spin()
+            setattr(self, attr, spin)
+            scal_axis_layout.addWidget(spin, stretch=0)
+        self.scalogram_manual_axes_check.toggled.connect(
+            lambda *_args: self._on_axis_controls_changed("scalogram")
+        )
+        for spin in (
+            self.scalogram_x_min_spin,
+            self.scalogram_x_max_spin,
+            self.scalogram_y_min_spin,
+            self.scalogram_y_max_spin,
+        ):
+            spin.valueChanged.connect(lambda *_args: self._on_axis_controls_changed("scalogram"))
+        v1.addLayout(scal_axis_layout)
 
         self.plot_signal_scal = pg.PlotWidget()
         self.plot_signal_scal.setBackground(None)
@@ -359,6 +474,7 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self.scalogram_lut = pg.HistogramLUTWidget()
         self.scalogram_lut.gradient.loadPreset("viridis")
         self.scalogram_lut.setMinimumHeight(120)
+        self.scalogram_lut.item.sigLevelsChanged.connect(self._on_scalogram_lut_levels_changed)
         v1.addWidget(self.scalogram_lut, stretch=0)
         self.tabs.addTab(self.tab_signal_scal, "Signal + Scalogram")
 
@@ -378,7 +494,46 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         )
         self.stft_window_spin.valueChanged.connect(self._on_stft_window_changed)
         spec_ctrl.addWidget(self.stft_window_spin, stretch=1)
+        spec_ctrl.addWidget(QtWidgets.QLabel("Color:"), stretch=0)
+        self.spectrogram_manual_color_check = QtWidgets.QCheckBox("Manual")
+        self.spectrogram_manual_color_check.setToolTip("Set spectrogram color bar limits manually.")
+        spec_ctrl.addWidget(self.spectrogram_manual_color_check, stretch=0)
+        spec_ctrl.addWidget(QtWidgets.QLabel("Min:"), stretch=0)
+        self.spectrogram_color_min_spin = self._make_color_limit_spin(-80.0)
+        spec_ctrl.addWidget(self.spectrogram_color_min_spin, stretch=0)
+        spec_ctrl.addWidget(QtWidgets.QLabel("Max:"), stretch=0)
+        self.spectrogram_color_max_spin = self._make_color_limit_spin(0.0)
+        spec_ctrl.addWidget(self.spectrogram_color_max_spin, stretch=0)
+        self.spectrogram_manual_color_check.toggled.connect(self._on_color_controls_changed)
+        self.spectrogram_color_min_spin.valueChanged.connect(self._on_color_controls_changed)
+        self.spectrogram_color_max_spin.valueChanged.connect(self._on_color_controls_changed)
         v2.addLayout(spec_ctrl)
+        spec_axis_layout = QtWidgets.QHBoxLayout()
+        spec_axis_layout.addWidget(QtWidgets.QLabel("Spectrogram axes:"), stretch=0)
+        self.spectrogram_manual_axes_check = QtWidgets.QCheckBox("Manual")
+        self.spectrogram_manual_axes_check.setToolTip("Set spectrogram X/Y coordinate limits manually.")
+        spec_axis_layout.addWidget(self.spectrogram_manual_axes_check, stretch=0)
+        for label, attr in (
+            ("X min:", "spectrogram_x_min_spin"),
+            ("X max:", "spectrogram_x_max_spin"),
+            ("Y min:", "spectrogram_y_min_spin"),
+            ("Y max:", "spectrogram_y_max_spin"),
+        ):
+            spec_axis_layout.addWidget(QtWidgets.QLabel(label), stretch=0)
+            spin = self._make_axis_limit_spin()
+            setattr(self, attr, spin)
+            spec_axis_layout.addWidget(spin, stretch=0)
+        self.spectrogram_manual_axes_check.toggled.connect(
+            lambda *_args: self._on_axis_controls_changed("spectrogram")
+        )
+        for spin in (
+            self.spectrogram_x_min_spin,
+            self.spectrogram_x_max_spin,
+            self.spectrogram_y_min_spin,
+            self.spectrogram_y_max_spin,
+        ):
+            spin.valueChanged.connect(lambda *_args: self._on_axis_controls_changed("spectrogram"))
+        v2.addLayout(spec_axis_layout)
         self.plot_spec = pg.PlotWidget()
         self.plot_spec.setBackground(None)
         self.plot_spec.setLabel("bottom", "Time", "s")
@@ -399,9 +554,134 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self.signal_view_combo.currentIndexChanged.connect(self._on_signal_view_changed)
 
         self.resize(1200, 900)
+        self._refresh_color_limit_controls()
+        self._refresh_axis_limit_controls()
 
     def _set_status(self, text: str):
         self.status_label.setText(text)
+
+    def _make_color_limit_spin(self, value: float) -> QtWidgets.QDoubleSpinBox:
+        spin = QtWidgets.QDoubleSpinBox()
+        spin.setRange(-1e12, 1e12)
+        spin.setDecimals(4)
+        spin.setSingleStep(1.0)
+        spin.setValue(float(value))
+        spin.setMaximumWidth(110)
+        spin.setEnabled(False)
+        return spin
+
+    def _make_axis_limit_spin(self) -> QtWidgets.QDoubleSpinBox:
+        spin = QtWidgets.QDoubleSpinBox()
+        spin.setRange(-1e12, 1e12)
+        spin.setDecimals(4)
+        spin.setSingleStep(1.0)
+        spin.setMaximumWidth(110)
+        spin.setEnabled(False)
+        return spin
+
+    def _refresh_color_limit_controls(self) -> None:
+        self.scalogram_color_min_spin.setEnabled(self.scalogram_manual_color_check.isChecked())
+        self.scalogram_color_max_spin.setEnabled(self.scalogram_manual_color_check.isChecked())
+        self.spectrogram_color_min_spin.setEnabled(self.spectrogram_manual_color_check.isChecked())
+        self.spectrogram_color_max_spin.setEnabled(self.spectrogram_manual_color_check.isChecked())
+
+    def _on_color_controls_changed(self, *_args) -> None:
+        if self._syncing_color_controls:
+            return
+        self._refresh_color_limit_controls()
+        if self._latest_results is None:
+            return
+        self._apply_results(self._latest_results)
+
+    def _on_scalogram_lut_levels_changed(self, *_args) -> None:
+        if self._setting_scalogram_lut_levels:
+            return
+        levels = self.scalogram_lut.item.getLevels()
+        if levels is None:
+            return
+        lo, hi = float(levels[0]), float(levels[1])
+        if hi <= lo:
+            return
+        self._last_scalogram_levels = (lo, hi)
+        self._syncing_color_controls = True
+        try:
+            self.scalogram_manual_color_check.setChecked(True)
+            self.scalogram_color_min_spin.setValue(lo)
+            self.scalogram_color_max_spin.setValue(hi)
+            self._refresh_color_limit_controls()
+        finally:
+            self._syncing_color_controls = False
+        self._set_status("Scalogram color range updated from color bar.")
+
+    def _axis_controls(self, kind: str):
+        if kind == "scalogram":
+            return (
+                self.scalogram_manual_axes_check,
+                self.scalogram_x_min_spin,
+                self.scalogram_x_max_spin,
+                self.scalogram_y_min_spin,
+                self.scalogram_y_max_spin,
+                self.plot_signal_scal,
+                "Scalogram",
+            )
+        return (
+            self.spectrogram_manual_axes_check,
+            self.spectrogram_x_min_spin,
+            self.spectrogram_x_max_spin,
+            self.spectrogram_y_min_spin,
+            self.spectrogram_y_max_spin,
+            self.plot_spec,
+            "Spectrogram",
+        )
+
+    def _refresh_axis_limit_controls(self) -> None:
+        for kind in ("scalogram", "spectrogram"):
+            manual, x_min, x_max, y_min, y_max, _plot, _label = self._axis_controls(kind)
+            enabled = manual.isChecked()
+            for spin in (x_min, x_max, y_min, y_max):
+                spin.setEnabled(enabled)
+
+    def _on_axis_controls_changed(self, kind: str) -> None:
+        if self._syncing_axis_controls:
+            return
+        self._refresh_axis_limit_controls()
+        manual, _x_min, _x_max, _y_min, _y_max, _plot, _label = self._axis_controls(kind)
+        if manual.isChecked():
+            self._apply_axis_limits(kind)
+        elif self._latest_results is not None:
+            self._apply_results(self._latest_results)
+
+    def _sync_axis_controls_from_plot(self, kind: str) -> None:
+        manual, x_min, x_max, y_min, y_max, plot, _label = self._axis_controls(kind)
+        if manual.isChecked():
+            return
+        x_range, y_range = plot.getViewBox().viewRange()
+        self._syncing_axis_controls = True
+        try:
+            x_min.setValue(float(x_range[0]))
+            x_max.setValue(float(x_range[1]))
+            y_min.setValue(float(y_range[0]))
+            y_max.setValue(float(y_range[1]))
+            self._refresh_axis_limit_controls()
+        finally:
+            self._syncing_axis_controls = False
+
+    def _apply_axis_limits(self, kind: str) -> bool:
+        manual, x_min, x_max, y_min, y_max, plot, label = self._axis_controls(kind)
+        if not manual.isChecked():
+            return False
+        x0 = float(x_min.value())
+        x1 = float(x_max.value())
+        y0 = float(y_min.value())
+        y1 = float(y_max.value())
+        if x1 <= x0 or y1 <= y0:
+            self._set_status(f"{label} axis range invalid: max must be greater than min.")
+            return False
+        vb = plot.getViewBox()
+        vb.enableAutoRange(x=False, y=False)
+        vb.setXRange(x0, x1, padding=0)
+        vb.setYRange(y0, y1, padding=0)
+        return True
 
     def _recording_duration_s(self) -> float:
         if self._metadata is not None:
@@ -679,8 +959,18 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
             resample_freqs=False,
             x_range=self._signal_x_range(r),
         )
-        lo, hi = _spectrogram_display_levels(Sxx_db)
-        img_spec.setLevels((lo, hi))
+        auto_levels = _spectrogram_display_levels(Sxx_db)
+        levels = self._color_levels(
+            self.spectrogram_manual_color_check,
+            self.spectrogram_color_min_spin,
+            self.spectrogram_color_max_spin,
+            auto_levels,
+            "_last_spectrogram_levels",
+            "Spectrogram",
+        )
+        img_spec.setLevels(levels)
+        self._sync_axis_controls_from_plot("spectrogram")
+        self._apply_axis_limits("spectrogram")
 
     def _on_signal_view_changed(self):
         if self._latest_results is not None:
@@ -745,6 +1035,28 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self._render_signal_and_scalogram(self._latest_results)
         self._render_spectrogram(self._latest_results)
         self._set_status("Fit XY.")
+
+    def _color_levels(
+        self,
+        manual_check: QtWidgets.QCheckBox,
+        min_spin: QtWidgets.QDoubleSpinBox,
+        max_spin: QtWidgets.QDoubleSpinBox,
+        auto_levels: Tuple[float, float],
+        last_attr: str,
+        label: str,
+    ) -> Tuple[float, float]:
+        if not manual_check.isChecked():
+            setattr(self, last_attr, auto_levels)
+            return auto_levels
+        lo = float(min_spin.value())
+        hi = float(max_spin.value())
+        if hi <= lo:
+            previous = getattr(self, last_attr)
+            self._set_status(f"{label} color range invalid: max must be greater than min.")
+            return previous if previous is not None else auto_levels
+        levels = (lo, hi)
+        setattr(self, last_attr, levels)
+        return levels
 
     def _set_image_with_axes(
         self,
@@ -852,9 +1164,23 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self._apply_signal_view_ranges(r, mode)
         wavelet = self.wavelet_combo.currentText()
         self.plot_signal_scal.setTitle(f"Scalogram (CWT) — {wavelet}")
-        img.setLevels((common_min, common_max))
-        self.scalogram_lut.setImageItem(img)
-        self.scalogram_lut.setLevels(common_min, common_max)
+        levels = self._color_levels(
+            self.scalogram_manual_color_check,
+            self.scalogram_color_min_spin,
+            self.scalogram_color_max_spin,
+            (common_min, common_max),
+            "_last_scalogram_levels",
+            "Scalogram",
+        )
+        img.setLevels(levels)
+        self._setting_scalogram_lut_levels = True
+        try:
+            self.scalogram_lut.setImageItem(img)
+            self.scalogram_lut.setLevels(*levels)
+        finally:
+            self._setting_scalogram_lut_levels = False
+        self._sync_axis_controls_from_plot("scalogram")
+        self._apply_axis_limits("scalogram")
 
     def _save_current_tab_png(self):
         cur = self.tabs.currentIndex()

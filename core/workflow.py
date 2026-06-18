@@ -15,7 +15,7 @@ if not hasattr(np, "trapz") and hasattr(np, "trapezoid"):
 from analysis.window_analysis import analyze_window
 from core.cache import AnalysisCache, build_cache_key
 from core.errors import EDFViewerError, ExportError, ParameterValidationError
-from core.models import AnalysisResult, EDFMetadata, ExportResult
+from core.models import AnalysisResult, ChannelWindow, EDFMetadata, ExportResult
 from core.parameters import (
     AnalysisParameters,
     DisplayParameters,
@@ -64,12 +64,7 @@ class EDFViewerWorkflow:
             cached.from_cache = True
             return cached
 
-        window = load_channel_window(
-            metadata.file_path,
-            channel_name,
-            parameters.window_start_s,
-            parameters.window_length_s,
-        )
+        window = _load_window_with_context(metadata, channel_name, parameters)
         processed_signal, processed_sfreq, preprocessing_metadata = preprocess_signal(window, parameters)
         result = analyze_window(
             window,
@@ -98,6 +93,12 @@ class EDFViewerWorkflow:
             color_range_mode=getattr(result.parameters, "color_range_mode", "auto"),
             color_min=getattr(result.parameters, "color_min", None),
             color_max=getattr(result.parameters, "color_max", None),
+            scalogram_color_range_mode=getattr(result.parameters, "scalogram_color_range_mode", None),
+            scalogram_color_min=getattr(result.parameters, "scalogram_color_min", None),
+            scalogram_color_max=getattr(result.parameters, "scalogram_color_max", None),
+            spectrogram_color_range_mode=getattr(result.parameters, "spectrogram_color_range_mode", None),
+            spectrogram_color_min=getattr(result.parameters, "spectrogram_color_min", None),
+            spectrogram_color_max=getattr(result.parameters, "spectrogram_color_max", None),
         )
         validate_display_parameters(display)
 
@@ -147,3 +148,41 @@ def _normalize_export_types(value: Any) -> set[str]:
         else:
             raise ExportError(f"Unsupported export type: {item}")
     return normalized or {"png", "csv", "parameters"}
+
+
+def _load_window_with_context(
+    metadata: EDFMetadata,
+    channel_name: str,
+    parameters: AnalysisParameters,
+) -> ChannelWindow:
+    window_start = float(parameters.window_start_s)
+    window_length = float(parameters.window_length_s)
+    context_pad = 0.05 * window_length
+    context_start = max(0.0, window_start - context_pad)
+    context_end = min(float(metadata.duration_s), window_start + window_length + context_pad)
+    context_length = context_end - context_start
+
+    context_window = load_channel_window(
+        metadata.file_path,
+        channel_name,
+        context_start,
+        context_length,
+    )
+    context_times = np.asarray(context_window.times_s, dtype=float)
+    if context_times.size and abs(float(context_times[0]) - context_start) < 1e-6:
+        absolute_times = context_times
+    else:
+        absolute_times = context_start + context_times
+
+    return ChannelWindow(
+        file_path=context_window.file_path,
+        channel_name=context_window.channel_name,
+        window_start_s=window_start,
+        window_length_s=window_length,
+        sfreq=context_window.sfreq,
+        times_s=absolute_times - window_start,
+        signal=context_window.signal,
+        units=context_window.units,
+        context_start_s=context_start,
+        context_length_s=context_length,
+    )

@@ -47,18 +47,47 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         params = win._build_analysis_parameters(10.0, 5.0)
         result = win._workflow.compute_window("sine", params)
         assert result.source.channel_name == "sine"
+        assert result.times_s[0] < 0.0
+        assert result.times_s[-1] > 5.0
 
         gui_results = _gui_results_from_analysis(result)
-        assert np.isclose(gui_results["times"][0], 10.0)
-        assert np.isclose(gui_results["times"][-1], 14.99)
-        assert np.isclose(gui_results["raw"][0][0], 10.0)
-        assert np.isclose(gui_results["raw"][0][-1], 14.99)
+        assert np.min(gui_results["times"]) >= 10.0
+        assert np.max(gui_results["times"]) <= 15.0
+        assert np.min(gui_results["raw"][0]) >= 10.0
+        assert np.max(gui_results["raw"][0]) <= 15.0
+        assert np.min(gui_results["spectrogram"][1]) >= 10.0
+        assert np.max(gui_results["spectrogram"][1]) <= 15.0
         win._on_window_ready(gui_results)
         qapp.processEvents()
         assert win._latest_results is gui_results
         assert win.save_btn.isEnabled()
         assert win.plot_signal_step.listDataItems()
         assert win.fit_xy_btn.text() == "Fit XY"
+        cache_size = len(win._window_cache)
+
+        win.scalogram_manual_color_check.setChecked(True)
+        win.scalogram_color_min_spin.setValue(0.25)
+        win.scalogram_color_max_spin.setValue(1.5)
+        win.spectrogram_manual_color_check.setChecked(True)
+        win.spectrogram_color_min_spin.setValue(-70.0)
+        win.spectrogram_color_max_spin.setValue(-5.0)
+        qapp.processEvents()
+        assert win._last_scalogram_levels == (0.25, 1.5)
+        assert win._last_spectrogram_levels == (-70.0, -5.0)
+        assert len(win._window_cache) == cache_size
+
+        win.scalogram_manual_color_check.setChecked(False)
+        win.scalogram_lut.item.setLevels(0.4, 1.2)
+        qapp.processEvents()
+        assert win.scalogram_manual_color_check.isChecked()
+        assert np.isclose(win.scalogram_color_min_spin.value(), 0.4)
+        assert np.isclose(win.scalogram_color_max_spin.value(), 1.2)
+        assert win._last_scalogram_levels == (0.4, 1.2)
+
+        win.scalogram_color_max_spin.setValue(0.1)
+        qapp.processEvents()
+        assert win._last_scalogram_levels == (0.4, 1.2)
+        assert "Scalogram color range invalid" in win.status_label.text()
 
         x0, x1 = win.plot_signal_step.getViewBox().viewRange()[0]
         assert np.isclose(x0, 10.0)
@@ -71,6 +100,10 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         y0, y1 = win.plot_signal_scal.getViewBox().viewRange()[1]
         assert np.isclose(y0, float(raw_freqs[0]) - 5.0)
         assert np.isclose(y1, float(raw_freqs[-1]) + 5.0)
+        assert np.isclose(win.scalogram_x_min_spin.value(), x0)
+        assert np.isclose(win.scalogram_x_max_spin.value(), x1)
+        assert np.isclose(win.scalogram_y_min_spin.value(), y0)
+        assert np.isclose(win.scalogram_y_max_spin.value(), y1)
 
         spec_freqs = gui_results["spectrogram"][0]
         x0, x1 = win.plot_spec.getViewBox().viewRange()[0]
@@ -79,6 +112,46 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         y0, y1 = win.plot_spec.getViewBox().viewRange()[1]
         assert np.isclose(y0, float(spec_freqs[0]) - 5.0)
         assert np.isclose(y1, float(spec_freqs[-1]) + 5.0)
+        assert np.isclose(win.spectrogram_x_min_spin.value(), x0)
+        assert np.isclose(win.spectrogram_x_max_spin.value(), x1)
+        assert np.isclose(win.spectrogram_y_min_spin.value(), y0)
+        assert np.isclose(win.spectrogram_y_max_spin.value(), y1)
+
+        win.scalogram_manual_axes_check.setChecked(True)
+        win.scalogram_x_min_spin.setValue(10.5)
+        win.scalogram_x_max_spin.setValue(14.5)
+        win.scalogram_y_min_spin.setValue(0.5)
+        win.scalogram_y_max_spin.setValue(5.5)
+        qapp.processEvents()
+        x0, x1 = win.plot_signal_scal.getViewBox().viewRange()[0]
+        y0, y1 = win.plot_signal_scal.getViewBox().viewRange()[1]
+        assert np.isclose(x0, 10.5)
+        assert np.isclose(x1, 14.5)
+        assert np.isclose(y0, 0.5)
+        assert np.isclose(y1, 5.5)
+
+        win.spectrogram_manual_axes_check.setChecked(True)
+        win.spectrogram_x_min_spin.setValue(11.0)
+        win.spectrogram_x_max_spin.setValue(14.0)
+        win.spectrogram_y_min_spin.setValue(1.0)
+        win.spectrogram_y_max_spin.setValue(4.0)
+        qapp.processEvents()
+        x0, x1 = win.plot_spec.getViewBox().viewRange()[0]
+        y0, y1 = win.plot_spec.getViewBox().viewRange()[1]
+        assert np.isclose(x0, 11.0)
+        assert np.isclose(x1, 14.0)
+        assert np.isclose(y0, 1.0)
+        assert np.isclose(y1, 4.0)
+
+        win.scalogram_x_max_spin.setValue(10.0)
+        qapp.processEvents()
+        x0, x1 = win.plot_signal_scal.getViewBox().viewRange()[0]
+        assert np.isclose(x0, 10.5)
+        assert np.isclose(x1, 14.5)
+        assert "Scalogram axis range invalid" in win.status_label.text()
+        win.scalogram_manual_axes_check.setChecked(False)
+        win.spectrogram_manual_axes_check.setChecked(False)
+        qapp.processEvents()
 
         win.freq_axis_log_btn.setChecked(True)
         win._on_freq_axis_log_toggled(True)

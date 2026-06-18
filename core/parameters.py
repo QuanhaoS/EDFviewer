@@ -28,6 +28,12 @@ class AnalysisParameters:
     color_range_mode: Literal["auto", "manual"] = "auto"
     color_min: float | None = None
     color_max: float | None = None
+    scalogram_color_range_mode: Literal["auto", "manual"] | None = None
+    scalogram_color_min: float | None = None
+    scalogram_color_max: float | None = None
+    spectrogram_color_range_mode: Literal["auto", "manual"] | None = None
+    spectrogram_color_min: float | None = None
+    spectrogram_color_max: float | None = None
     filter_enabled: bool = False
     filter_type: FilterType | None = None
     low_cut_hz: float | None = None
@@ -42,6 +48,12 @@ class DisplayParameters:
     color_range_mode: Literal["auto", "manual"] = "auto"
     color_min: float | None = None
     color_max: float | None = None
+    scalogram_color_range_mode: Literal["auto", "manual"] | None = None
+    scalogram_color_min: float | None = None
+    scalogram_color_max: float | None = None
+    spectrogram_color_range_mode: Literal["auto", "manual"] | None = None
+    spectrogram_color_min: float | None = None
+    spectrogram_color_max: float | None = None
     fit_signal_y: bool = True
 
 
@@ -59,13 +71,21 @@ def validate_display_parameters(display: DisplayParameters) -> None:
         raise ParameterValidationError("active_signal_view must be raw, bbi, or amplitude")
     if display.freq_axis_mode not in {"linear", "log"}:
         raise ParameterValidationError("freq_axis_mode must be linear or log")
-    if display.color_range_mode not in {"auto", "manual"}:
-        raise ParameterValidationError("color_range_mode must be auto or manual")
-    if display.color_range_mode == "manual":
-        if display.color_min is None or display.color_max is None:
-            raise ParameterValidationError("Manual color range requires color_min and color_max")
-        if display.color_max <= display.color_min:
-            raise ParameterValidationError("color_max must be greater than color_min")
+    _validate_color_range("color", display.color_range_mode, display.color_min, display.color_max)
+    _validate_color_range(
+        "scalogram_color",
+        display.scalogram_color_range_mode,
+        display.scalogram_color_min,
+        display.scalogram_color_max,
+        allow_none_mode=True,
+    )
+    _validate_color_range(
+        "spectrogram_color",
+        display.spectrogram_color_range_mode,
+        display.spectrogram_color_min,
+        display.spectrogram_color_max,
+        allow_none_mode=True,
+    )
 
 
 def validate_analysis_parameters(
@@ -114,13 +134,21 @@ def validate_analysis_parameters(
         raise ParameterValidationError("filter_order must be > 0")
     if parameters.freq_axis_mode not in {"linear", "log"}:
         raise ParameterValidationError("freq_axis_mode must be linear or log")
-    if parameters.color_range_mode not in {"auto", "manual"}:
-        raise ParameterValidationError("color_range_mode must be auto or manual")
-    if parameters.color_range_mode == "manual":
-        if parameters.color_min is None or parameters.color_max is None:
-            raise ParameterValidationError("Manual color range requires color_min and color_max")
-        if parameters.color_max <= parameters.color_min:
-            raise ParameterValidationError("color_max must be greater than color_min")
+    _validate_color_range("color", parameters.color_range_mode, parameters.color_min, parameters.color_max)
+    _validate_color_range(
+        "scalogram_color",
+        parameters.scalogram_color_range_mode,
+        parameters.scalogram_color_min,
+        parameters.scalogram_color_max,
+        allow_none_mode=True,
+    )
+    _validate_color_range(
+        "spectrogram_color",
+        parameters.spectrogram_color_range_mode,
+        parameters.spectrogram_color_min,
+        parameters.spectrogram_color_max,
+        allow_none_mode=True,
+    )
 
     if not parameters.filter_enabled:
         return
@@ -147,6 +175,27 @@ def build_analysis_parameters(raw_values: dict, metadata: EDFMetadata) -> Analys
     params = AnalysisParameters(**raw_values)
     validate_analysis_parameters(params, metadata)
     return params
+
+
+def _validate_color_range(
+    name: str,
+    mode: Literal["auto", "manual"] | None,
+    color_min: float | None,
+    color_max: float | None,
+    *,
+    allow_none_mode: bool = False,
+) -> None:
+    if mode is None:
+        if allow_none_mode:
+            return
+        raise ParameterValidationError(f"{name}_range_mode must be auto or manual")
+    if mode not in {"auto", "manual"}:
+        raise ParameterValidationError(f"{name}_range_mode must be auto or manual")
+    if mode == "manual":
+        if color_min is None or color_max is None:
+            raise ParameterValidationError(f"Manual {name} range requires min and max")
+        if color_max <= color_min:
+            raise ParameterValidationError(f"{name}_max must be greater than {name}_min")
 
 
 def parameter_record(

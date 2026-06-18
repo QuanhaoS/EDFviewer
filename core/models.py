@@ -67,6 +67,8 @@ class ChannelWindow:
     times_s: np.ndarray
     signal: np.ndarray
     units: str | None = None
+    context_start_s: float | None = None
+    context_length_s: float | None = None
 
     def __post_init__(self) -> None:
         times = _as_1d_float_array(self.times_s, "times_s")
@@ -79,6 +81,10 @@ class ChannelWindow:
             raise ValueError("window_length_s must be > 0")
         if self.sfreq <= 0:
             raise ValueError("sfreq must be > 0")
+        if self.context_start_s is not None and self.context_start_s < 0:
+            raise ValueError("context_start_s must be >= 0")
+        if self.context_length_s is not None and self.context_length_s <= 0:
+            raise ValueError("context_length_s must be > 0")
         if signal.size == 0:
             raise ValueError("signal must not be empty")
         _require_increasing(times, "times_s")
