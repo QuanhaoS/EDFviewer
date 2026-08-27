@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -39,12 +40,42 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert "sine" in win._metadata.channel_names
         assert win.channel_combo.count() >= 2
         assert win.compute_btn.isEnabled()
+        assert win.apply_filter_btn.isEnabled()
+        assert not win.save_btn.isEnabled()
+        assert not win.save_signal_btn.isEnabled()
+        assert not win.save_scalogram_btn.isEnabled()
+        assert not win.save_spectrogram_btn.isEnabled()
+        original_sfreq = win._metadata.sfreq_by_channel[win.channel_combo.currentText()]
+        assert win.original_hz_label.text() == f"Original frequency: {original_sfreq:g} Hz"
+        assert np.isclose(win.filter_low_spin.value(), 0.5)
+        assert win.filter_high_spin.value() > win.filter_low_spin.value()
+        assert not win.filter_type_combo.isEnabled()
 
         win.channel_combo.setCurrentText("sine")
+        original_sfreq = win._metadata.sfreq_by_channel["sine"]
+        assert win.original_hz_label.text() == f"Original frequency: {original_sfreq:g} Hz"
         win.target_hz_spin.setValue(100.0)
         win.window_start_spin.setValue(10.0)
         win.window_len_spin.setValue(5.0)
+        win.filter_enabled_check.setChecked(True)
+        win.filter_type_combo.setCurrentText("BPF")
+        win.filter_family_combo.setCurrentText("Elliptic")
+        win.filter_low_spin.setValue(1.0)
+        win.filter_high_spin.setValue(8.0)
+        win.filter_order_spin.setValue(3)
+        win.filter_ripple_spin.setValue(1.5)
+        win.filter_stop_atten_spin.setValue(45.0)
+        assert win.filter_low_spin.isEnabled()
+        assert win.filter_high_spin.isEnabled()
+        assert win.filter_ripple_spin.isEnabled()
+        assert win.filter_stop_atten_spin.isEnabled()
         params = win._build_analysis_parameters(10.0, 5.0)
+        assert params.filter_enabled is True
+        assert params.filter_type == "band_pass"
+        assert params.filter_family == "ellip"
+        assert params.low_cut_hz == 1.0
+        assert params.high_cut_hz == 8.0
+        assert params.filter_order == 3
         result = win._workflow.compute_window("sine", params)
         assert result.source.channel_name == "sine"
         assert result.times_s[0] < 0.0
@@ -61,8 +92,30 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         qapp.processEvents()
         assert win._latest_results is gui_results
         assert win.save_btn.isEnabled()
+        assert win.save_signal_btn.isEnabled()
+        assert win.save_scalogram_btn.isEnabled()
+        assert win.save_spectrogram_btn.isEnabled()
         assert win.plot_signal_step.listDataItems()
         assert win.fit_xy_btn.text() == "Fit XY"
+        assert win.tabs.tabText(2) == "Features"
+        assert win.features_table.rowCount() == len(result.features)
+        feature_names = {
+            win.features_table.item(row, 0).text()
+            for row in range(win.features_table.rowCount())
+        }
+        assert "time_rms" in feature_names
+        assert "freq_dominant_hz" in feature_names
+        cache_size = len(win._window_cache)
+
+        win.filter_type_combo.setCurrentText("BSF")
+        qapp.processEvents()
+        assert len(win._window_cache) == cache_size
+        assert "Click Apply Filter" in win.status_label.text()
+        recomputed = []
+        win._compute_current_window = lambda: recomputed.append(True)
+        win._apply_filter_settings()
+        assert recomputed == [True]
+        assert len(win._window_cache) == 0
         cache_size = len(win._window_cache)
 
         win.scalogram_manual_color_check.setChecked(True)
@@ -83,6 +136,14 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert np.isclose(win.scalogram_color_min_spin.value(), 0.4)
         assert np.isclose(win.scalogram_color_max_spin.value(), 1.2)
         assert win._last_scalogram_levels == (0.4, 1.2)
+
+        win.spectrogram_manual_color_check.setChecked(False)
+        win.spectrogram_lut.item.setLevels(-60.0, -10.0)
+        qapp.processEvents()
+        assert win.spectrogram_manual_color_check.isChecked()
+        assert np.isclose(win.spectrogram_color_min_spin.value(), -60.0)
+        assert np.isclose(win.spectrogram_color_max_spin.value(), -10.0)
+        assert win._last_spectrogram_levels == (-60.0, -10.0)
 
         win.scalogram_color_max_spin.setValue(0.1)
         qapp.processEvents()
@@ -177,6 +238,40 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert pixmap.save(str(png_path), "PNG")
         assert png_path.exists()
         assert png_path.stat().st_size > 0
+
+        session_path = tmp_path / "session.json"
+        win.scalogram_color_max_spin.setValue(1.2)
+        win.tabs.setCurrentWidget(win.tab_features)
+        saved_path = win._save_session_to_path(session_path)
+        assert saved_path == str(session_path)
+        session = json.loads(session_path.read_text(encoding="utf-8"))
+        assert session["version"] == 1
+        assert session["channel"] == "sine"
+        assert session["active_tab"] == 2
+        assert session["filter"]["enabled"] is True
+        assert session["active_result"]["parameters"]["filter_family"] == "ellip"
+
+        win.channel_combo.setCurrentIndex(0)
+        win.window_start_spin.setValue(0.0)
+        win.window_len_spin.setValue(10.0)
+        win.wavelet_combo.setCurrentText("mexh")
+        win.filter_enabled_check.setChecked(False)
+        win.scalogram_manual_color_check.setChecked(False)
+        win.features_table.setRowCount(1)
+
+        loaded = win._load_session_from_path(session_path)
+        qapp.processEvents()
+        assert loaded["channel"] == "sine"
+        assert win.channel_combo.currentText() == "sine"
+        assert np.isclose(win.window_start_spin.value(), 10.0)
+        assert np.isclose(win.window_len_spin.value(), 5.0)
+        assert win.wavelet_combo.currentText() == "cmor1.5-1.0"
+        assert win.filter_enabled_check.isChecked()
+        assert win.filter_family_combo.currentText() == "Elliptic"
+        assert win.scalogram_manual_color_check.isChecked()
+        assert np.isclose(win.scalogram_color_min_spin.value(), 0.4)
+        assert win.tabs.currentWidget() is win.tab_features
+        assert win.features_table.rowCount() == 0
     finally:
         win.close()
 
@@ -194,6 +289,94 @@ def test_spectrogram_display_levels_use_peak_relative_floor():
 
     assert hi == -7.0
     assert lo == hi - SPECTROGRAM_DYNAMIC_RANGE_DB
+
+
+def test_manual_scalogram_axes_drive_cwt_frequency_range(qapp):
+    win = EDFReaderPyQt6()
+    try:
+        win.target_hz_spin.setValue(100.0)
+        win.scalogram_manual_axes_check.setChecked(True)
+        win.scalogram_y_min_spin.setValue(2.0)
+        win.scalogram_y_max_spin.setValue(8.0)
+
+        params = win._build_analysis_parameters(0.0, 10.0)
+
+        assert params.scalogram_fmin_hz == 2.0
+        assert params.scalogram_fmax_hz == 8.0
+        assert params.scalogram_n_scales == 64
+    finally:
+        win.close()
+
+
+def test_manual_spectrogram_axes_drive_stft_frequency_range(qapp):
+    win = EDFReaderPyQt6()
+    try:
+        win.target_hz_spin.setValue(100.0)
+        win.spectrogram_manual_axes_check.setChecked(True)
+        win.spectrogram_y_min_spin.setValue(2.0)
+        win.spectrogram_y_max_spin.setValue(8.0)
+
+        params = win._build_analysis_parameters(0.0, 10.0)
+
+        assert params.spectrogram_fmin_hz == 2.0
+        assert params.spectrogram_fmax_hz == 8.0
+        assert params.spectrogram_n_freq_bins == 64
+    finally:
+        win.close()
+
+
+@pytest.mark.skipif(not PHANTOM.exists(), reason="samples/phantom.edf is missing")
+def test_close_signal_button_resets_gui_to_initial_state(qapp):
+    win = EDFReaderPyQt6()
+    try:
+        assert not win.close_signal_btn.isEnabled()
+
+        win._load_dataset_full(str(PHANTOM))
+        qapp.processEvents()
+        assert win._metadata is not None
+        assert win._workflow.metadata is not None
+        assert win.channel_combo.isEnabled()
+        assert win.compute_btn.isEnabled()
+        assert win.close_signal_btn.isEnabled()
+
+        win._latest_results = {"analysis_result": None}
+        win._set_save_buttons_enabled(True)
+        win.features_table.setRowCount(1)
+        win.plot_signal_step.plot([0.0, 1.0], [0.0, 1.0])
+        scal_img = win._ensure_image(win.plot_signal_scal, None)
+        spec_img = win._ensure_image(win.plot_spec, None)
+        win.scalogram_lut.item.setImageItem(scal_img)
+        win.spectrogram_lut.item.setImageItem(spec_img)
+
+        win.close_signal_btn.click()
+        qapp.processEvents()
+
+        assert win._metadata is None
+        assert win._active_edf_path is None
+        assert win._workflow.metadata is None
+        assert win.channel_combo.count() == 0
+        assert not win.channel_combo.isEnabled()
+        assert not win.compute_btn.isEnabled()
+        assert not win.close_signal_btn.isEnabled()
+        assert not win.save_btn.isEnabled()
+        assert win.file_label.text() == "EDF: (none)"
+        assert win.original_hz_label.text() == "Original frequency: -- Hz"
+        assert np.isclose(win.target_hz_spin.value(), 16.0)
+        assert np.isclose(win.window_start_spin.value(), 0.0)
+        assert np.isclose(win.window_len_spin.value(), 60.0)
+        assert win.features_table.rowCount() == 0
+        assert win.plot_signal_step.listDataItems() == []
+        assert win.plot_signal_scal.plotItem.items == []
+        assert win.plot_spec.plotItem.items == []
+        assert win.scalogram_lut.item.imageItem() is None
+        assert win.spectrogram_lut.item.imageItem() is None
+        for plot in [*win.scalogram_lut.item.plots, *win.spectrogram_lut.item.plots]:
+            x_data, y_data = plot.getData()
+            assert len(x_data) == 0
+            assert len(y_data) == 0
+        assert "Signal closed." in win.status_label.text()
+    finally:
+        win.close()
 
 
 def test_prepare_frequency_image_expands_linear_hz_range():

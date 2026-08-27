@@ -38,6 +38,52 @@ def test_invalid_filter_fails():
         validate_analysis_parameters(params, _metadata(), channel_name="sine")
 
 
+def test_band_stop_filter_parameters_validate():
+    params = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="band_stop",
+        low_cut_hz=4.0,
+        high_cut_hz=8.0,
+        filter_family="ellip",
+        filter_ripple_db=1.0,
+        filter_stop_atten_db=40.0,
+    )
+
+    validate_analysis_parameters(params, _metadata(), channel_name="sine")
+
+
+def test_invalid_filter_family_fails():
+    params = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="low_pass",
+        high_cut_hz=8.0,
+        filter_family="not-a-family",
+    )
+    with pytest.raises(ParameterValidationError):
+        validate_analysis_parameters(params, _metadata(), channel_name="sine")
+
+
+def test_invalid_filter_ripple_and_attenuation_fail():
+    ripple = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="low_pass",
+        high_cut_hz=8.0,
+        filter_family="cheby1",
+        filter_ripple_db=0.0,
+    )
+    attenuation = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="low_pass",
+        high_cut_hz=8.0,
+        filter_family="cheby2",
+        filter_stop_atten_db=0.0,
+    )
+    with pytest.raises(ParameterValidationError):
+        validate_analysis_parameters(ripple, _metadata(), channel_name="sine")
+    with pytest.raises(ParameterValidationError):
+        validate_analysis_parameters(attenuation, _metadata(), channel_name="sine")
+
+
 def test_display_manual_color_range_fails():
     with pytest.raises(ParameterValidationError):
         validate_display_parameters(
@@ -91,3 +137,28 @@ def test_analysis_cache_lru_and_parameter_key():
     assert cache.get(k2) == "second"
     cache.clear()
     assert len(cache) == 0
+
+
+def test_filter_family_parameters_change_cache_key():
+    base = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="low_pass",
+        high_cut_hz=8.0,
+        filter_family="butter",
+    )
+    family = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="low_pass",
+        high_cut_hz=8.0,
+        filter_family="cheby1",
+    )
+    ripple = AnalysisParameters(
+        filter_enabled=True,
+        filter_type="low_pass",
+        high_cut_hz=8.0,
+        filter_family="cheby1",
+        filter_ripple_db=2.0,
+    )
+
+    assert build_cache_key("x.edf", "sine", base) != build_cache_key("x.edf", "sine", family)
+    assert build_cache_key("x.edf", "sine", family) != build_cache_key("x.edf", "sine", ripple)

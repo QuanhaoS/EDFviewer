@@ -8,7 +8,7 @@ from core.errors import PreprocessingError
 from core.models import ChannelWindow
 from core.parameters import AnalysisParameters
 from preprocessing.downsample import downsample
-from preprocessing.filter import band_pass, high_pass, low_pass
+from preprocessing.filter import band_pass, band_stop, high_pass, low_pass
 
 
 def _as_1d_signal(signal) -> np.ndarray:
@@ -33,14 +33,20 @@ def apply_filter_if_needed(
 
     try:
         data_2d = signal[np.newaxis, :]
+        common_kwargs = {
+            "order": parameters.filter_order,
+            "family": parameters.filter_family,
+            "ripple_db": parameters.filter_ripple_db,
+            "stop_atten_db": parameters.filter_stop_atten_db,
+        }
         if parameters.filter_type == "low_pass":
             if parameters.high_cut_hz is None:
                 raise PreprocessingError("low-pass requires high_cut_hz")
-            filtered = low_pass(data_2d, sfreq, parameters.high_cut_hz, order=parameters.filter_order)[0]
+            filtered = low_pass(data_2d, sfreq, parameters.high_cut_hz, **common_kwargs)[0]
         elif parameters.filter_type == "high_pass":
             if parameters.low_cut_hz is None:
                 raise PreprocessingError("high-pass requires low_cut_hz")
-            filtered = high_pass(data_2d, sfreq, parameters.low_cut_hz, order=parameters.filter_order)[0]
+            filtered = high_pass(data_2d, sfreq, parameters.low_cut_hz, **common_kwargs)[0]
         elif parameters.filter_type == "band_pass":
             if parameters.low_cut_hz is None or parameters.high_cut_hz is None:
                 raise PreprocessingError("band-pass requires low_cut_hz and high_cut_hz")
@@ -49,7 +55,17 @@ def apply_filter_if_needed(
                 sfreq,
                 parameters.low_cut_hz,
                 parameters.high_cut_hz,
-                order=parameters.filter_order,
+                **common_kwargs,
+            )[0]
+        elif parameters.filter_type == "band_stop":
+            if parameters.low_cut_hz is None or parameters.high_cut_hz is None:
+                raise PreprocessingError("band-stop requires low_cut_hz and high_cut_hz")
+            filtered = band_stop(
+                data_2d,
+                sfreq,
+                parameters.low_cut_hz,
+                parameters.high_cut_hz,
+                **common_kwargs,
             )[0]
         else:
             raise PreprocessingError(f"Unknown filter_type: {parameters.filter_type}")
@@ -64,6 +80,9 @@ def apply_filter_if_needed(
         "low_cut_hz": parameters.low_cut_hz,
         "high_cut_hz": parameters.high_cut_hz,
         "filter_order": parameters.filter_order,
+        "filter_family": parameters.filter_family,
+        "filter_ripple_db": parameters.filter_ripple_db,
+        "filter_stop_atten_db": parameters.filter_stop_atten_db,
     }
 
 

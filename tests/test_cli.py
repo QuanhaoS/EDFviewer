@@ -1,4 +1,5 @@
 import contextlib
+import csv
 import io
 import json
 import tempfile
@@ -181,6 +182,83 @@ class CLITests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(stdout, "")
         self.assertIn("Manual scalogram_color range requires min and max", stderr)
+
+    def test_cli_band_stop_filter_family_parameters_export(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code, stdout, stderr = self._run_cli(
+                [
+                    str(PHANTOM),
+                    "--channel",
+                    "sine",
+                    "--start",
+                    "0",
+                    "--length",
+                    "5",
+                    "--cwt-scales",
+                    "8",
+                    "--filter",
+                    "band_stop",
+                    "--filter-low",
+                    "4",
+                    "--filter-high",
+                    "8",
+                    "--filter-order",
+                    "3",
+                    "--filter-family",
+                    "ellip",
+                    "--filter-ripple-db",
+                    "1.5",
+                    "--filter-stop-atten-db",
+                    "45",
+                    "--export",
+                    "parameters",
+                    "-o",
+                    tmpdir,
+                ]
+            )
+
+            self.assertEqual(code, 0, stderr)
+            record_path = next(Path(tmpdir).glob("*_parameters.json"))
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["filtering"]["filter_type"], "band_stop")
+            self.assertEqual(record["filtering"]["filter_family"], "ellip")
+            self.assertEqual(record["filtering"]["filter_ripple_db"], 1.5)
+            self.assertEqual(record["filtering"]["filter_stop_atten_db"], 45.0)
+
+    def test_cli_batch_windows_writes_summary_csv(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code, stdout, stderr = self._run_cli(
+                [
+                    str(PHANTOM),
+                    "--channels",
+                    "sine,chirp",
+                    "--start",
+                    "0",
+                    "--length",
+                    "5",
+                    "--batch-windows",
+                    "--end",
+                    "10",
+                    "--step",
+                    "5",
+                    "--cwt-scales",
+                    "8",
+                    "--export",
+                    "csv",
+                    "-o",
+                    tmpdir,
+                ]
+            )
+
+            self.assertEqual(code, 0, stderr)
+            self.assertIn("Analyses: 4", stdout)
+            summary_path = Path(tmpdir) / "batch_features.csv"
+            self.assertTrue(summary_path.exists())
+            with summary_path.open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 4)
+            self.assertEqual({row["channel"] for row in rows}, {"sine", "chirp"})
+            self.assertEqual(rows[0]["window_start_s"], "0.0")
 
     def _run_cli(self, argv):
         stdout = io.StringIO()

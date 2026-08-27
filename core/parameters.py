@@ -9,7 +9,8 @@ from .errors import ParameterValidationError
 from .models import EDFMetadata
 
 
-FilterType = Literal["low_pass", "high_pass", "band_pass"]
+FilterType = Literal["low_pass", "high_pass", "band_pass", "band_stop"]
+FilterFamily = Literal["butter", "cheby1", "cheby2", "ellip", "bessel"]
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class AnalysisParameters:
     stft_window_s: float = 5.0
     spectrogram_fmin_hz: float = 0.0
     spectrogram_fmax_hz: float = 10.0
+    spectrogram_n_freq_bins: int = 64
     freq_axis_mode: Literal["linear", "log"] = "linear"
     color_range_mode: Literal["auto", "manual"] = "auto"
     color_min: float | None = None
@@ -39,6 +41,9 @@ class AnalysisParameters:
     low_cut_hz: float | None = None
     high_cut_hz: float | None = None
     filter_order: int = 4
+    filter_family: FilterFamily = "butter"
+    filter_ripple_db: float = 1.0
+    filter_stop_atten_db: float = 40.0
 
 
 @dataclass(frozen=True)
@@ -128,10 +133,20 @@ def validate_analysis_parameters(
         raise ParameterValidationError("spectrogram_fmax_hz must be greater than spectrogram_fmin_hz")
     if parameters.spectrogram_fmax_hz >= nyquist:
         raise ParameterValidationError("spectrogram_fmax_hz must be below Nyquist")
+    if parameters.spectrogram_n_freq_bins <= 0:
+        raise ParameterValidationError("spectrogram_n_freq_bins must be > 0")
     if parameters.stft_window_s <= 0:
         raise ParameterValidationError("stft_window_s must be > 0")
     if parameters.filter_order <= 0:
         raise ParameterValidationError("filter_order must be > 0")
+    if parameters.filter_family not in {"butter", "cheby1", "cheby2", "ellip", "bessel"}:
+        raise ParameterValidationError(
+            "filter_family must be butter, cheby1, cheby2, ellip, or bessel"
+        )
+    if parameters.filter_ripple_db <= 0:
+        raise ParameterValidationError("filter_ripple_db must be > 0")
+    if parameters.filter_stop_atten_db <= 0:
+        raise ParameterValidationError("filter_stop_atten_db must be > 0")
     if parameters.freq_axis_mode not in {"linear", "log"}:
         raise ParameterValidationError("freq_axis_mode must be linear or log")
     _validate_color_range("color", parameters.color_range_mode, parameters.color_min, parameters.color_max)
@@ -152,8 +167,10 @@ def validate_analysis_parameters(
 
     if not parameters.filter_enabled:
         return
-    if parameters.filter_type not in {"low_pass", "high_pass", "band_pass"}:
-        raise ParameterValidationError("filter_type must be low_pass, high_pass, or band_pass")
+    if parameters.filter_type not in {"low_pass", "high_pass", "band_pass", "band_stop"}:
+        raise ParameterValidationError(
+            "filter_type must be low_pass, high_pass, band_pass, or band_stop"
+        )
     low = parameters.low_cut_hz
     high = parameters.high_cut_hz
     if parameters.filter_type == "low_pass":
@@ -162,12 +179,14 @@ def validate_analysis_parameters(
     elif parameters.filter_type == "high_pass":
         if low is None or low <= 0 or low >= nyquist:
             raise ParameterValidationError("high-pass filtering requires 0 < low_cut_hz < Nyquist")
-    elif parameters.filter_type == "band_pass":
+    elif parameters.filter_type in {"band_pass", "band_stop"}:
         if low is None or high is None:
-            raise ParameterValidationError("band-pass filtering requires low_cut_hz and high_cut_hz")
+            raise ParameterValidationError(
+                f"{parameters.filter_type} filtering requires low_cut_hz and high_cut_hz"
+            )
         if low <= 0 or high <= 0 or high <= low or high >= nyquist:
             raise ParameterValidationError(
-                "band-pass filtering requires 0 < low_cut_hz < high_cut_hz < Nyquist"
+                f"{parameters.filter_type} filtering requires 0 < low_cut_hz < high_cut_hz < Nyquist"
             )
 
 

@@ -123,6 +123,9 @@ def export_parameter_record(result: AnalysisResult, output_path: str | Path) -> 
             "low_cut_hz": getattr(result.parameters, "low_cut_hz", None),
             "high_cut_hz": getattr(result.parameters, "high_cut_hz", None),
             "filter_order": getattr(result.parameters, "filter_order", None),
+            "filter_family": getattr(result.parameters, "filter_family", None),
+            "filter_ripple_db": getattr(result.parameters, "filter_ripple_db", None),
+            "filter_stop_atten_db": getattr(result.parameters, "filter_stop_atten_db", None),
         },
         "cwt": {
             "wavelet": getattr(result.parameters, "wavelet", None),

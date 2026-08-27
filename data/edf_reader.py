@@ -32,6 +32,38 @@ def _unit_label(raw, idx: int) -> str | None:
     return str(unit)
 
 
+def _record_duration_s(raw) -> float:
+    extra = raw._raw_extras[0]
+    record_length = np.asarray(extra.get("record_length", []), dtype=float).ravel()
+    if record_length.size and record_length[0] > 0:
+        return float(record_length[0])
+    return 1.0
+
+
+def _channel_sample_counts(raw, channel_names: list[str]) -> dict[str, int]:
+    """Return original EDF samples per channel when MNE exposes the header."""
+    extra = raw._raw_extras[0]
+    n_samps = np.asarray(extra.get("n_samps", []), dtype=int).ravel()
+    selected = np.asarray(extra.get("sel", []), dtype=int).ravel()
+    if n_samps.size == 0:
+        return {}
+    if selected.size != len(channel_names):
+        selected = np.arange(len(channel_names), dtype=int)
+
+    counts: dict[str, int] = {}
+    for ch, sample_idx in zip(channel_names, selected):
+        if 0 <= int(sample_idx) < n_samps.size:
+            counts[ch] = int(n_samps[int(sample_idx)])
+    return counts
+
+
+def _data_record_count(raw) -> int:
+    try:
+        return int(raw._raw_extras[0].get("n_records", 0))
+    except Exception:
+        return 0
+
+
 def load_edf_metadata(file_path: str) -> EDFMetadata:
     path = Path(file_path)
     if not path.exists():
@@ -48,11 +80,19 @@ def load_edf_metadata(file_path: str) -> EDFMetadata:
     n_samples_by_channel: dict[str, int] = {}
     units_by_channel: dict[str, str | None] = {}
     default_sfreq = float(raw.info["sfreq"])
+    record_duration_s = _record_duration_s(raw)
+    n_records = _data_record_count(raw)
+    samples_per_record = _channel_sample_counts(raw, channel_names)
     n_times = int(raw.n_times)
     duration_s = float(n_times) / default_sfreq
     for idx, ch in enumerate(channel_names):
-        sfreq_by_channel[ch] = default_sfreq
-        n_samples_by_channel[ch] = n_times
+        samples = samples_per_record.get(ch)
+        if samples is None or samples <= 0:
+            sfreq_by_channel[ch] = default_sfreq
+            n_samples_by_channel[ch] = n_times
+        else:
+            sfreq_by_channel[ch] = float(samples) / record_duration_s
+            n_samples_by_channel[ch] = int(samples * n_records) or n_times
         units_by_channel[ch] = _unit_label(raw, idx)
 
     try:

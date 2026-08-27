@@ -53,6 +53,7 @@ def test_phantom_sine_first_window_dominant_frequency_near_1p5_hz():
         len(result.spectrogram.freqs_hz),
         len(result.spectrogram.times_s),
     )
+    assert len(result.spectrogram.freqs_hz) == parameters.spectrogram_n_freq_bins
     assert np.all(np.diff(result.raw_scalogram.freqs_hz) > 0)
     assert np.all(np.diff(result.spectrogram.freqs_hz) > 0)
 

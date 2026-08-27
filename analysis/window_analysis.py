@@ -323,10 +323,14 @@ def _compute_stft_map(
     if values.ndim == 3:
         values = values[0]
     values = 10.0 * np.log10(values + np.finfo(float).eps)
-    mask = (freqs >= parameters.spectrogram_fmin_hz) & (freqs <= parameters.spectrogram_fmax_hz)
-    freqs = np.asarray(freqs, dtype=float)[mask]
-    values = values[mask, :]
     freqs, values = _sort_freqs(freqs, values)
+    freqs, values = _resample_frequency_bins(
+        freqs,
+        values,
+        parameters.spectrogram_fmin_hz,
+        parameters.spectrogram_fmax_hz,
+        parameters.spectrogram_n_freq_bins,
+    )
     return TimeFrequencyMap(
         times_s=np.asarray(times, dtype=float),
         freqs_hz=freqs,
@@ -353,6 +357,41 @@ def _sort_freqs(freqs: np.ndarray, values: np.ndarray) -> tuple[np.ndarray, np.n
     values = np.asarray(values, dtype=float)
     order = np.argsort(freqs)
     return freqs[order], values[order, :]
+
+
+def _resample_frequency_bins(
+    freqs: np.ndarray,
+    values: np.ndarray,
+    fmin: float,
+    fmax: float,
+    n_bins: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    freqs = np.asarray(freqs, dtype=float).ravel()
+    values = np.asarray(values, dtype=float)
+    if values.ndim != 2:
+        raise AnalysisError(f"time-frequency values must be 2-D, got shape {values.shape}")
+    if freqs.shape[0] != values.shape[0]:
+        raise AnalysisError("frequency axis and time-frequency rows must have the same length")
+    valid = np.isfinite(freqs)
+    freqs = freqs[valid]
+    values = values[valid, :]
+    if freqs.size == 0:
+        raise AnalysisError("frequency axis must not be empty")
+    unique_freqs, unique_idx = np.unique(freqs, return_index=True)
+    unique_values = values[unique_idx, :]
+    target_freqs = np.linspace(float(fmin), float(fmax), int(n_bins))
+    if unique_freqs.size == 1:
+        return target_freqs, np.repeat(unique_values, int(n_bins), axis=0)
+    out = np.empty((target_freqs.shape[0], unique_values.shape[1]), dtype=float)
+    for j in range(unique_values.shape[1]):
+        out[:, j] = np.interp(
+            target_freqs,
+            unique_freqs,
+            unique_values[:, j],
+            left=float(unique_values[0, j]),
+            right=float(unique_values[-1, j]),
+        )
+    return target_freqs, out
 
 
 def _scalar(value: Any) -> Any:

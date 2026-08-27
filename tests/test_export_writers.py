@@ -77,6 +77,9 @@ def test_export_parameter_record_writes_required_sections(tmp_path):
     assert record["source"]["channel_name"] == "sine"
     assert record["sampling"]["processed_sfreq_hz"] == 100.0
     assert record["filtering"]["filter_enabled"] is True
+    assert record["filtering"]["filter_family"] == "butter"
+    assert record["filtering"]["filter_ripple_db"] == 1.0
+    assert record["filtering"]["filter_stop_atten_db"] == 40.0
     assert record["cwt"]["wavelet"] == "cmor1.5-1.0"
     assert record["stft"]["stft_window_s"] == 1.0
     assert record["display"]["freq_axis_mode"] == "linear"
