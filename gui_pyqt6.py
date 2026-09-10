@@ -1439,6 +1439,17 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         plot.addItem(img)
         return img
 
+    def _bind_lut_to_image(
+        self,
+        lut: pg.HistogramLUTWidget,
+        img: pg.ImageItem,
+        levels: Tuple[float, float],
+    ) -> None:
+        img.setLookupTable(lut.item.getLookupTable)
+        img.setLevels(levels)
+        lut.item.setImageItem(img)
+        lut.item.setLevels(*levels)
+
     def _apply_results(self, r: Dict[str, Any]):
         self._latest_results = r
         self._render_signal_and_scalogram(r)
@@ -1487,13 +1498,12 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
             "_last_spectrogram_levels",
             "Spectrogram",
         )
-        img_spec.setLevels(levels)
         self._setting_spectrogram_lut_levels = True
         try:
-            self.spectrogram_lut.setImageItem(img_spec)
-            self.spectrogram_lut.setLevels(*levels)
+            self._bind_lut_to_image(self.spectrogram_lut, img_spec, levels)
         finally:
             self._setting_spectrogram_lut_levels = False
+        self._img_spec = img_spec
         self._sync_axis_controls_from_plot("spectrogram")
         self._apply_axis_limits("spectrogram")
 
@@ -1697,13 +1707,12 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
             "_last_scalogram_levels",
             "Scalogram",
         )
-        img.setLevels(levels)
         self._setting_scalogram_lut_levels = True
         try:
-            self.scalogram_lut.setImageItem(img)
-            self.scalogram_lut.setLevels(*levels)
+            self._bind_lut_to_image(self.scalogram_lut, img, levels)
         finally:
             self._setting_scalogram_lut_levels = False
+        self._img_signal_scal = img
         self._sync_axis_controls_from_plot("scalogram")
         self._apply_axis_limits("scalogram")
 

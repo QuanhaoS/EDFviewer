@@ -95,6 +95,10 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert win.save_signal_btn.isEnabled()
         assert win.save_scalogram_btn.isEnabled()
         assert win.save_spectrogram_btn.isEnabled()
+        assert win._img_signal_scal is win.scalogram_lut.item.imageItem()
+        assert win._img_spec is win.spectrogram_lut.item.imageItem()
+        assert callable(win._img_signal_scal.lut)
+        assert callable(win._img_spec.lut)
         assert win.plot_signal_step.listDataItems()
         assert win.fit_xy_btn.text() == "Fit XY"
         assert win.tabs.tabText(2) == "Features"
