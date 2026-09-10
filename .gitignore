@@ -1,2 +1,12 @@
-# Large sample EDFs (use external storage / README links; GitHub limit 100 MB)
-samples/*.edf
+.DS_Store
+.cursor/
+**/.DS_Store
+**/.pytest_cache/
+**/__pycache__/
+**/*.py[cod]
+**/build/
+**/dist/
+**/outputs/
+**/.venv/
+**/venv/
+**/samples/*.edf

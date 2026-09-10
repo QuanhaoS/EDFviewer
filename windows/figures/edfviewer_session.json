@@ -1,0 +1,87 @@
+{
+  "active_result": {
+    "channel": "PlethWV",
+    "parameters": {
+      "color_max": null,
+      "color_min": null,
+      "color_range_mode": "auto",
+      "filter_enabled": false,
+      "filter_family": "butter",
+      "filter_order": 4,
+      "filter_ripple_db": 1.0,
+      "filter_stop_atten_db": 40.0,
+      "filter_type": null,
+      "freq_axis_mode": "linear",
+      "high_cut_hz": 8.0,
+      "low_cut_hz": 0.5,
+      "scalogram_color_max": null,
+      "scalogram_color_min": null,
+      "scalogram_color_range_mode": null,
+      "scalogram_fmax_hz": 0.9,
+      "scalogram_fmin_hz": 0.1,
+      "scalogram_n_scales": 64,
+      "spectrogram_color_max": null,
+      "spectrogram_color_min": null,
+      "spectrogram_color_range_mode": null,
+      "spectrogram_fmax_hz": 12.8,
+      "spectrogram_fmin_hz": 0.1,
+      "spectrogram_n_freq_bins": 64,
+      "stft_window_s": 60.0,
+      "target_sfreq": 32.0,
+      "wavelet": "cmor1.5-1.0",
+      "window_length_s": 60.0,
+      "window_start_s": 1200.0
+    },
+    "window_length_s": 60.0,
+    "window_start_s": 1200.0
+  },
+  "active_tab": 0,
+  "axes": {
+    "scalogram": {
+      "manual": true,
+      "x_max": 674.0,
+      "x_min": 600.0,
+      "y_max": 0.9,
+      "y_min": 0.0
+    },
+    "spectrogram": {
+      "manual": false,
+      "x_max": 1260.0,
+      "x_min": 1200.0,
+      "y_max": 17.8,
+      "y_min": -4.9
+    }
+  },
+  "channel": "PlethWV",
+  "color_ranges": {
+    "scalogram": {
+      "manual": true,
+      "max": 0.3607,
+      "min": 0.0001
+    },
+    "spectrogram": {
+      "manual": false,
+      "max": 0.0,
+      "min": -80.0
+    }
+  },
+  "edf_path": "/Users/sunquanhao/Desktop/Quanhao/EDFviewer/samples/cfs-visit5-800537.edf",
+  "filter": {
+    "enabled": false,
+    "family": "Butterworth",
+    "high_hz": 8.0,
+    "low_hz": 0.5,
+    "order": 4,
+    "ripple_db": 1.0,
+    "stop_atten_db": 40.0,
+    "type": "LPF"
+  },
+  "freq_axis": "linear",
+  "signal_view": "Raw",
+  "stft_window_s": 60.0,
+  "target_sfreq": 32.0,
+  "version": 1,
+  "wavelet": "cmor1.5-1.0",
+  "window_length_s": 60.0,
+  "window_start_s": 1200.0
+}
