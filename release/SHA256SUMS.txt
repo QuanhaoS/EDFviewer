@@ -1,1 +1,2 @@
 fc0437644c32c08fc190aa38dea8c45dbeac5b066b5a2b12814a7bf262470292  EDFViewer-Windows-x64-v1.0.1.zip
+e0bfaf8c5e012e97581f878b706c80d7671ed4eb286da403637bf1088ff03014  EDFViewer-macOS-v1.0.1.zip

@@ -13,13 +13,16 @@ Both versions share the same main analysis workflow. They are separate source co
 
 ## Download
 
-The prebuilt Windows package is published on the GitHub **Releases** page:
+Prebuilt packages are published on the GitHub **Releases** page:
 
-**[Download EDFViewer for Windows](https://github.com/QuanhaoS/EDFviewer/releases/latest)**
+**[Download EDFViewer releases](https://github.com/QuanhaoS/EDFviewer/releases/latest)**
 
-The current release asset is `EDFViewer-Windows-x64-v1.0.1.zip`. Extract the complete ZIP and run `EDFViewer\EDFViewer.exe`; do not separate the executable from its `_internal` directory. A SHA-256 checksum file is provided with the download.
+Current packages:
 
-The macOS package will be added separately after a native macOS build is available.
+- `EDFViewer-Windows-x64-v1.0.1.zip` — extract the complete ZIP and run `EDFViewer\EDFViewer.exe`; do not separate the executable from its `_internal` directory.
+- `EDFViewer-macOS-v1.0.1.zip` — extract the ZIP on macOS and open `EDFViewer.app`.
+
+SHA-256 checksums are listed in [`release/SHA256SUMS.txt`](release/SHA256SUMS.txt).
 
 ## Contents
 
