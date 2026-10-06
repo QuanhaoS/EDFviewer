@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-Build or update samples/phantom.edf with synthetic test channels.
-
-Channels:
-  - sine  : existing sinusoid (preserved from prior PHANTOM channel when updating)
-  - chirp : linear FM, x(t) = A * cos(2*pi*(f0*t + k/2*t^2))
-
-Default: f0=2 Hz, k=0.2 Hz/s, A=0.2, sfreq=100 Hz, duration=300 s.
-"""
+"""Build samples/phantom.edf with deterministic synthetic test channels."""
 
 from __future__ import annotations
 
@@ -31,6 +23,22 @@ def linear_chirp(
     return amplitude * np.cos(phase)
 
 
+def piecewise_sine(t: np.ndarray) -> np.ndarray:
+    """Synthetic sine used by the test suite.
+
+    The first 100 s segment is 1.5 Hz at 200 mV peak, the second is 1.5 Hz
+    at 100 mV peak, and the last is 3 Hz at 100 mV peak.
+    """
+    signal = np.empty_like(t, dtype=float)
+    first = t < 100.0
+    second = (t >= 100.0) & (t < 200.0)
+    third = t >= 200.0
+    signal[first] = 0.2 * np.sin(2.0 * np.pi * 1.5 * t[first])
+    signal[second] = 0.1 * np.sin(2.0 * np.pi * 1.5 * t[second])
+    signal[third] = 0.1 * np.sin(2.0 * np.pi * 3.0 * t[third])
+    return signal
+
+
 def build_phantom_edf(
     out_path: Path,
     f0: float = 2.0,
@@ -43,20 +51,7 @@ def build_phantom_edf(
     n_samples = int(round(sfreq * duration_s))
     t = np.arange(n_samples, dtype=float) / sfreq
 
-    if out_path.exists():
-        raw_in = mne.io.read_raw_edf(str(out_path), preload=True, verbose=False)
-        if raw_in.n_times != n_samples or raw_in.info["sfreq"] != sfreq:
-            raise ValueError(
-                f"Existing {out_path.name}: sfreq={raw_in.info['sfreq']}, "
-                f"n_times={raw_in.n_times}; expected sfreq={sfreq}, n_times={n_samples}"
-            )
-        sine = raw_in.get_data()[0].astype(float, copy=False)
-        if raw_in.n_times != n_samples:
-            raise ValueError("Sample count mismatch with existing file.")
-    else:
-        # Fresh file: 1 Hz sine at same amplitude as legacy phantom
-        sine = amplitude * np.sin(2.0 * np.pi * 1.0 * t)
-
+    sine = piecewise_sine(t)
     chirp = linear_chirp(t, f0=f0, k=k, amplitude=amplitude)
     data = np.vstack([sine, chirp])
 

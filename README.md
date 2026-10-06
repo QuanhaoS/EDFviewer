@@ -127,8 +127,6 @@ The data models, preprocessing, analysis modules, CLI, exporters, visualization-
 | Scalogram automatic color range | Shared minimum/maximum across Raw, BBI, and Amplitude | P1–P98 of the currently displayed image |
 | Spectrogram automatic color range | Peak-relative 80 dB range | P1–P98 of the currently displayed image |
 | Matplotlib temporary directory | macOS `/tmp` path | `tempfile.gettempdir()` Windows-safe path |
-| Requirements | Runtime and packaging packages | Also declares `pytest` and `edfio` |
-| Phantom sine channel | Preserves a compatible existing signal, or creates a new 1 Hz sine | Deterministic piecewise sine used by Windows validation |
 | Historical snapshots | `mac/versions/` contains older CLI/GUI copies | No equivalent duplicate tree |
 
 PyInstaller output is platform-specific: build a macOS `.app` on macOS and a Windows `.exe` on Windows.
@@ -213,12 +211,6 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
-```
-
-The macOS requirements file does not currently list the test/sample dependencies. Install them when running tests or generating the phantom EDF:
-
-```bash
-python3 -m pip install pytest edfio
 ```
 
 ## Quick start
