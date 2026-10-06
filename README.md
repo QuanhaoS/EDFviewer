@@ -11,9 +11,24 @@ Both versions share the same main analysis workflow. They are separate source co
 
 > EDFViewer is an analysis and visualization tool. It is not a certified medical device and should not be used as the sole basis for clinical decisions.
 
+## Download
+
+Prebuilt Windows and macOS packages are published on the GitHub **Releases** page:
+
+**[Download the latest EDFViewer release](https://github.com/QuanhaoS/EDFviewer/releases/latest)**
+
+Each release contains:
+
+- `EDFViewer-Windows-x64-<version>.zip` — the complete portable Windows directory containing `EDFViewer.exe` and `_internal/`;
+- `EDFViewer-macOS-<version>.zip` — the macOS `EDFViewer.app` bundle, archived with macOS metadata preserved;
+- `SHA256SUMS.txt` — SHA-256 checksums for both archives.
+
+Windows users should extract the complete ZIP and run `EDFViewer\EDFViewer.exe`. macOS users should extract the ZIP and open `EDFViewer.app`.
+
 ## Contents
 
 - [Features](#features)
+- [Download](#download)
 - [macOS and Windows comparison](#macos-and-windows-comparison)
 - [Repository structure](#repository-structure)
 - [Installation](#installation)
@@ -530,6 +545,10 @@ See [`mac/packaging/macos.md`](mac/packaging/macos.md) and [`windows/packaging/w
 6. uploads `windows/dist/EDFViewer/` as the `EDFViewer-Windows` artifact.
 
 Download a CI build from a successful **Windows Build** run on the repository's **Actions** page.
+
+`.github/workflows/release.yml` runs when a version tag such as `v1.0.0` is pushed. It builds and tests both operating-system packages on native GitHub runners, runs packaged CLI and GUI startup smoke tests, creates ZIP archives and SHA-256 checksums, and publishes them together on the GitHub **Releases** page.
+
+CI artifacts from ordinary branch builds are temporary development builds. The versioned files on the **Releases** page are the recommended downloads for users.
 
 ## Troubleshooting
 
