@@ -106,6 +106,25 @@ WAVELET_CHOICES = [
 SPECTROGRAM_DYNAMIC_RANGE_DB = 80.0
 
 
+def _percentile_color_levels(
+    values: np.ndarray,
+    fallback: Tuple[float, float] = (0.0, 1.0),
+) -> Tuple[float, float]:
+    """Return robust color levels using the finite-value P1/P98 range."""
+    finite = np.asarray(values, dtype=float).ravel()
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return fallback
+
+    lo, hi = np.nanpercentile(finite, [1.0, 98.0])
+    lo, hi = float(lo), float(hi)
+    if hi <= lo:
+        value = float(finite[0])
+        pad = max(abs(value) * 1e-6, 1e-9)
+        return (value - pad, value + pad)
+    return (lo, hi)
+
+
 def _step_from_samples(
     x0: float,
     x_endpoints: np.ndarray,
@@ -460,6 +479,14 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self.scalogram_manual_color_check = QtWidgets.QCheckBox("Manual")
         self.scalogram_manual_color_check.setToolTip("Set scalogram color bar limits manually.")
         selector_layout.addWidget(self.scalogram_manual_color_check, stretch=0)
+        self.scalogram_auto_color_btn = QtWidgets.QPushButton("Auto")
+        self.scalogram_auto_color_btn.setToolTip(
+            "Set the scalogram color bar to the current image's 1st–98th percentile range."
+        )
+        self.scalogram_auto_color_btn.clicked.connect(
+            lambda: self._set_auto_color_levels("scalogram")
+        )
+        selector_layout.addWidget(self.scalogram_auto_color_btn, stretch=0)
         selector_layout.addWidget(QtWidgets.QLabel("Min:"), stretch=0)
         self.scalogram_color_min_spin = self._make_color_limit_spin(0.0)
         selector_layout.addWidget(self.scalogram_color_min_spin, stretch=0)
@@ -537,6 +564,14 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self.spectrogram_manual_color_check = QtWidgets.QCheckBox("Manual")
         self.spectrogram_manual_color_check.setToolTip("Set spectrogram color bar limits manually.")
         spec_ctrl.addWidget(self.spectrogram_manual_color_check, stretch=0)
+        self.spectrogram_auto_color_btn = QtWidgets.QPushButton("Auto")
+        self.spectrogram_auto_color_btn.setToolTip(
+            "Set the spectrogram color bar to the current image's 1st–98th percentile range."
+        )
+        self.spectrogram_auto_color_btn.clicked.connect(
+            lambda: self._set_auto_color_levels("spectrogram")
+        )
+        spec_ctrl.addWidget(self.spectrogram_auto_color_btn, stretch=0)
         spec_ctrl.addWidget(QtWidgets.QLabel("Min:"), stretch=0)
         self.spectrogram_color_min_spin = self._make_color_limit_spin(-80.0)
         spec_ctrl.addWidget(self.spectrogram_color_min_spin, stretch=0)
@@ -624,6 +659,8 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self.save_scalogram_btn.setEnabled(enabled)
         self.save_signal_btn.setEnabled(enabled)
         self.save_spectrogram_btn.setEnabled(enabled)
+        self.scalogram_auto_color_btn.setEnabled(enabled)
+        self.spectrogram_auto_color_btn.setEnabled(enabled)
 
     def _close_current_signal(self) -> None:
         self._reset_to_initial_state(status="Signal closed.")
@@ -858,6 +895,37 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         if self._latest_results is None:
             return
         self._apply_results(self._latest_results)
+
+    def _set_auto_color_levels(self, kind: str) -> None:
+        if self._latest_results is None:
+            self._set_status(f"{kind.title()} Auto: compute a window first.")
+            return
+
+        manual_check = (
+            self.scalogram_manual_color_check
+            if kind == "scalogram"
+            else self.spectrogram_manual_color_check
+        )
+        self._syncing_color_controls = True
+        try:
+            manual_check.setChecked(False)
+            self._refresh_color_limit_controls()
+        finally:
+            self._syncing_color_controls = False
+
+        if kind == "scalogram":
+            self._render_signal_and_scalogram(self._latest_results)
+            levels = self._last_scalogram_levels
+            label = "Scalogram"
+        else:
+            self._render_spectrogram(self._latest_results)
+            levels = self._last_spectrogram_levels
+            label = "Spectrogram"
+
+        if levels is not None:
+            self._set_status(
+                f"{label} Auto color range (P1–P98): {levels[0]:.6g} to {levels[1]:.6g}."
+            )
 
     def _on_scalogram_lut_levels_changed(self, *_args) -> None:
         if self._setting_scalogram_lut_levels:
@@ -1489,7 +1557,7 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
             resample_freqs=False,
             x_range=self._signal_x_range(r),
         )
-        auto_levels = _spectrogram_display_levels(Sxx_db)
+        auto_levels = _percentile_color_levels(img_spec.image)
         levels = self._color_levels(
             self.spectrogram_manual_color_check,
             self.spectrogram_color_min_spin,
@@ -1582,6 +1650,13 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
     ) -> Tuple[float, float]:
         if not manual_check.isChecked():
             setattr(self, last_attr, auto_levels)
+            was_syncing = self._syncing_color_controls
+            self._syncing_color_controls = True
+            try:
+                min_spin.setValue(auto_levels[0])
+                max_spin.setValue(auto_levels[1])
+            finally:
+                self._syncing_color_controls = was_syncing
             return auto_levels
         lo = float(min_spin.value())
         hi = float(max_spin.value())
@@ -1649,13 +1724,9 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         raw_times_s, raw_freqs, raw_coefs = r["raw"]
         bbi_times_s, bbi_freqs, bbi_coefs = r["bbi_scalogram"]
         amp_times_s, amp_freqs, amp_coefs = r["amp_scalogram"]
-        common_min = float(min(np.min(raw_coefs), np.min(bbi_coefs), np.min(amp_coefs)))
-        common_max = float(max(np.max(raw_coefs), np.max(bbi_coefs), np.max(amp_coefs)))
-        if common_max <= common_min:
-            common_max = common_min + 1e-9
 
         if mode == "Raw":
-            self.plot_signal_step.plot(r["times"], r["sig"], pen=pg.mkPen("w", width=1.0))
+            self.plot_signal_step.plot(r["times"], r["sig"], pen=pg.mkPen("b", width=1.0))
             self.plot_signal_step.setLabel("left", self.channel_combo.currentText(), "")
             img = self._set_image_with_axes(
                 self.plot_signal_scal,
@@ -1699,11 +1770,12 @@ class EDFReaderPyQt6(QtWidgets.QMainWindow):
         self._apply_signal_view_ranges(r, mode)
         wavelet = self.wavelet_combo.currentText()
         self.plot_signal_scal.setTitle(f"Scalogram (CWT) — {wavelet}")
+        auto_levels = _percentile_color_levels(img.image)
         levels = self._color_levels(
             self.scalogram_manual_color_check,
             self.scalogram_color_min_spin,
             self.scalogram_color_max_spin,
-            (common_min, common_max),
+            auto_levels,
             "_last_scalogram_levels",
             "Scalogram",
         )

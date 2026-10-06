@@ -17,6 +17,7 @@ from gui_pyqt6 import (
     EDFReaderPyQt6,
     SPECTROGRAM_DYNAMIC_RANGE_DB,
     _gui_results_from_analysis,
+    _percentile_color_levels,
     _prepare_frequency_image,
     _spectrogram_display_levels,
 )
@@ -45,6 +46,8 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert not win.save_signal_btn.isEnabled()
         assert not win.save_scalogram_btn.isEnabled()
         assert not win.save_spectrogram_btn.isEnabled()
+        assert not win.scalogram_auto_color_btn.isEnabled()
+        assert not win.spectrogram_auto_color_btn.isEnabled()
         original_sfreq = win._metadata.sfreq_by_channel[win.channel_combo.currentText()]
         assert win.original_hz_label.text() == f"Original frequency: {original_sfreq:g} Hz"
         assert np.isclose(win.filter_low_spin.value(), 0.5)
@@ -95,6 +98,8 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert win.save_signal_btn.isEnabled()
         assert win.save_scalogram_btn.isEnabled()
         assert win.save_spectrogram_btn.isEnabled()
+        assert win.scalogram_auto_color_btn.isEnabled()
+        assert win.spectrogram_auto_color_btn.isEnabled()
         assert win._img_signal_scal is win.scalogram_lut.item.imageItem()
         assert win._img_spec is win.spectrogram_lut.item.imageItem()
         assert callable(win._img_signal_scal.lut)
@@ -132,6 +137,30 @@ def test_gui_loads_phantom_and_renders_workflow_result(qapp, tmp_path):
         assert win._last_scalogram_levels == (0.25, 1.5)
         assert win._last_spectrogram_levels == (-70.0, -5.0)
         assert len(win._window_cache) == cache_size
+
+        expected_scalogram_levels = _percentile_color_levels(win._img_signal_scal.image)
+        win.scalogram_auto_color_btn.click()
+        qapp.processEvents()
+        assert not win.scalogram_manual_color_check.isChecked()
+        assert np.allclose(win._last_scalogram_levels, expected_scalogram_levels)
+        assert np.isclose(
+            win.scalogram_color_min_spin.value(), expected_scalogram_levels[0], atol=1e-4
+        )
+        assert np.isclose(
+            win.scalogram_color_max_spin.value(), expected_scalogram_levels[1], atol=1e-4
+        )
+
+        expected_spectrogram_levels = _percentile_color_levels(win._img_spec.image)
+        win.spectrogram_auto_color_btn.click()
+        qapp.processEvents()
+        assert not win.spectrogram_manual_color_check.isChecked()
+        assert np.allclose(win._last_spectrogram_levels, expected_spectrogram_levels)
+        assert np.isclose(
+            win.spectrogram_color_min_spin.value(), expected_spectrogram_levels[0], atol=1e-4
+        )
+        assert np.isclose(
+            win.spectrogram_color_max_spin.value(), expected_spectrogram_levels[1], atol=1e-4
+        )
 
         win.scalogram_manual_color_check.setChecked(False)
         win.scalogram_lut.item.setLevels(0.4, 1.2)
@@ -293,6 +322,18 @@ def test_spectrogram_display_levels_use_peak_relative_floor():
 
     assert hi == -7.0
     assert lo == hi - SPECTROGRAM_DYNAMIC_RANGE_DB
+
+
+def test_percentile_color_levels_use_finite_p1_p98_and_safe_fallbacks():
+    values = np.concatenate([np.arange(100.0), [np.nan, np.inf, -np.inf]])
+    lo, hi = _percentile_color_levels(values)
+    expected_lo, expected_hi = np.percentile(np.arange(100.0), [1.0, 98.0])
+    assert np.isclose(lo, expected_lo)
+    assert np.isclose(hi, expected_hi)
+
+    assert _percentile_color_levels([np.nan, np.inf]) == (0.0, 1.0)
+    constant_lo, constant_hi = _percentile_color_levels(np.ones((2, 2)) * 5.0)
+    assert constant_lo < 5.0 < constant_hi
 
 
 def test_manual_scalogram_axes_drive_cwt_frequency_range(qapp):
